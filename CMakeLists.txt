@@ -10,15 +10,15 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}" ${CMAKE_MODULE_PATH})
 
 project(v4l2nv VERSION 0.0.0 LANGUAGES C CXX)
 
+set(CUDA_PATH /usr/local/cuda-10.2)
+set(TEGRA_ARMABI aarch64-linux-gnu)
+set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda-10.2)
+
 find_package(Threads)
 find_package(CUDA REQUIRED)
 # find_package(CUDNN REQUIRED)
 # find_package(OpenCV REQUIRED)
 # find_package(TensorRT REQUIRED)
-
-set(CUDA_PATH /usr/local/cuda-10.2)
-set(TEGRA_ARMABI aarch64-linux-gnu)
-
 
 
 set(CUDA_SEPARABLE_COMPILATION ON)
@@ -30,10 +30,11 @@ set(CUDA_HOST_COMPILER /usr/bin/g++)
 
 
 include_directories(
-    inc
 	# -I"$(TOP_DIR)/include/libjpeg-8b" \
 	# -I"$(ALGO_CUDA_DIR)" \
 	# -I"$(ALGO_TRT_DIR)" \
+    include
+    include/libjpeg-8b
 	${CUDA_PATH}/include
 	/usr/include/${TEGRA_ARMABI}
 	/usr/include/libdrm
@@ -84,4 +85,4 @@ target_link_libraries(${PROJECT_NAME}  	-lpthread -lv4l2 -lEGL -lGLESv2 -lX11 -l
 # set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES "86")
 # target_link_libraries(${PROJECT_NAME}  ${CUDNN_LIBRARIES}  ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${TensorRT_LIBRARIES})
 # target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} )
-message(${OpenCV_LIBS})
+# message(${OpenCV_LIBS})
