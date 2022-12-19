@@ -46,24 +46,17 @@ include_directories(
 
 # set(CLASS_DIR 	:= $(TOP_DIR)/samples/common/classes )
 
-file(GLOB CLASS_SRC
-     "/usr/src/*.h"
-     "*.cpp"
-)
+file(GLOB CLASS_SRC "classes/*.cpp")
 
 link_directories(	
             ${CUDA_PATH}/lib64
             /usr/lib/${TEGRA_ARMABI}
             /usr/lib/${TEGRA_ARMABI}/tegra
-
         )
-
-
-
 
 set(CUDA_NVCC_FLAGS
     ${CUDA_NVCC_FLAGS};
-    -O3 -gencode arch=compute_86,code=sm_86)
+    -O3 -gencode arch=compute_72,code=sm_72)
 
 
 SET(GCC_COVERAGE_COMPILE_FLAGS "-std=c++14 -Wunused-function")
@@ -71,7 +64,7 @@ SET( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
 
 # TARGETS --------------------------------------------------------------------------------------------------------------
 
-cuda_add_executable(${PROJECT_NAME} main.cpp)
+cuda_add_executable(${PROJECT_NAME} main.cpp ${CLASS_SRC})
 
 # message(WARNING ${CMAKE_MFC_FLAG})
 set(CMAKE_CXX_STANDARD 14)

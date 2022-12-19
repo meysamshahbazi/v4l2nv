@@ -39,7 +39,7 @@
 
 #include "NvEglRenderer.h"
 #include "NvUtils.h"
-#include "NvCudaProc.h"
+// #include "NvCudaProc.h"
 #include "nvbuf_utils.h"
 
 #include "camera_v4l2_cuda.h"
@@ -552,28 +552,28 @@ signal_handle(int signum)
     quit = true;
 }
 
-static bool
-cuda_postprocess(context_t *ctx, int fd)
-{
-    if (ctx->enable_cuda)
-    {
-        /* Create EGLImage from dmabuf fd */
-        ctx->egl_image = NvEGLImageFromFd(ctx->egl_display, fd);
-        if (ctx->egl_image == NULL)
-            ERROR_RETURN("Failed to map dmabuf fd (0x%X) to EGLImage",
-                    ctx->render_dmabuf_fd);
+// static bool
+// cuda_postprocess(context_t *ctx, int fd)
+// {
+//     if (ctx->enable_cuda)
+//     {
+//         /* Create EGLImage from dmabuf fd */
+//         ctx->egl_image = NvEGLImageFromFd(ctx->egl_display, fd);
+//         if (ctx->egl_image == NULL)
+//             ERROR_RETURN("Failed to map dmabuf fd (0x%X) to EGLImage",
+//                     ctx->render_dmabuf_fd);
 
-        /* Pass this buffer hooked on this egl_image to CUDA for
-           CUDA processing - draw a rectangle on the frame */
-        HandleEGLImage(&ctx->egl_image);
+//         /* Pass this buffer hooked on this egl_image to CUDA for
+//            CUDA processing - draw a rectangle on the frame */
+//         HandleEGLImage(&ctx->egl_image);
 
-        /* Destroy EGLImage */
-        NvDestroyEGLImage(ctx->egl_display, ctx->egl_image);
-        ctx->egl_image = NULL;
-    }
+//         /* Destroy EGLImage */
+//         NvDestroyEGLImage(ctx->egl_display, ctx->egl_image);
+//         ctx->egl_image = NULL;
+//     }
 
-    return true;
-}
+//     return true;
+// }
 
 static bool
 start_capture(context_t * ctx)
@@ -675,7 +675,7 @@ start_capture(context_t * ctx)
                         ERROR_RETURN("Failed to clear chroma");
                 }
             }
-            cuda_postprocess(ctx, ctx->render_dmabuf_fd);
+            // cuda_postprocess(ctx, ctx->render_dmabuf_fd);
 
             /* Preview */
             ctx->renderer->render(ctx->render_dmabuf_fd);
