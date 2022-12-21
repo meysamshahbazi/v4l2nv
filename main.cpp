@@ -51,95 +51,6 @@ static bool quit = false;
 using namespace std;
 
 static void
-print_usage(void)
-{
-    printf("\n\tUsage: camera_v4l2_cuda [OPTIONS]\n\n"
-           "\tExample: \n"
-           "\t./camera_v4l2_cuda -d /dev/video0 -s 640x480 -f YUYV -n 30 -c\n\n"
-           "\tSupported options:\n"
-           "\t-d\t\tSet V4l2 video device node\n"
-           "\t-s\t\tSet output resolution of video device\n"
-           "\t-f\t\tSet output pixel format of video device (supports only YUYV/YVYU/UYVY/VYUY/GREY/MJPEG)\n"
-           "\t-r\t\tSet renderer frame rate (30 fps by default)\n"
-           "\t-n\t\tSave the n-th frame before VIC processing\n"
-           "\t-c\t\tEnable CUDA aglorithm (draw a black box in the upper left corner)\n"
-           "\t-v\t\tEnable verbose message\n"
-           "\t-h\t\tPrint this usage\n\n"
-           "\tNOTE: It runs infinitely until you terminate it with <ctrl+c>\n");
-}
-
-static bool
-parse_cmdline(context_t * ctx, int argc, char **argv)
-{
-    int c;
-
-    if (argc < 2)
-    {
-        print_usage();
-        exit(EXIT_SUCCESS);
-    }
-
-    while ((c = getopt(argc, argv, "d:s:f:r:n:cvh")) != -1)
-    {
-        switch (c)
-        {
-            case 'd':
-                ctx->cam_devname = optarg;
-                break;
-            case 's':
-                if (sscanf(optarg, "%dx%d",
-                            &ctx->cam_w, &ctx->cam_h) != 2)
-                {
-                    print_usage();
-                    return false;
-                }
-                break;
-            case 'f':
-                if (strcmp(optarg, "YUYV") == 0)
-                    ctx->cam_pixfmt = V4L2_PIX_FMT_YUYV;
-                else if (strcmp(optarg, "YVYU") == 0)
-                    ctx->cam_pixfmt = V4L2_PIX_FMT_YVYU;
-                else if (strcmp(optarg, "VYUY") == 0)
-                    ctx->cam_pixfmt = V4L2_PIX_FMT_VYUY;
-                else if (strcmp(optarg, "UYVY") == 0)
-                    ctx->cam_pixfmt = V4L2_PIX_FMT_UYVY;
-                else if (strcmp(optarg, "GREY") == 0)
-                    ctx->cam_pixfmt = V4L2_PIX_FMT_GREY;
-                else if (strcmp(optarg, "MJPEG") == 0)
-                    ctx->cam_pixfmt = V4L2_PIX_FMT_MJPEG;
-                else
-                {
-                    print_usage();
-                    return false;
-                }
-                sprintf(ctx->cam_file, "camera.%s", optarg);
-                break;
-            case 'r':
-                ctx->fps = strtol(optarg, NULL, 10);
-                break;
-            case 'n':
-                ctx->save_n_frame = strtol(optarg, NULL, 10);
-                break;
-            case 'c':
-                ctx->enable_cuda = true;
-                break;
-            case 'v':
-                ctx->enable_verbose = true;
-                break;
-            case 'h':
-                print_usage();
-                exit(EXIT_SUCCESS);
-                break;
-            default:
-                print_usage();
-                return false;
-        }
-    }
-
-    return true;
-}
-
-static void
 set_defaults(context_t * ctx)
 {
     memset(ctx, 0, sizeof(context_t));
@@ -147,13 +58,13 @@ set_defaults(context_t * ctx)
     ctx->cam_devname = "/dev/video0";
     ctx->cam_fd = -1;
     ctx->cam_pixfmt = V4L2_PIX_FMT_YUYV;
-    ctx->cam_w = 640;
-    ctx->cam_h = 480;
+    ctx->cam_w = 1920;
+    ctx->cam_h = 1080;
     ctx->frame = 0;
     ctx->save_n_frame = 0;
 
     ctx->g_buff = NULL;
-    ctx->capture_dmabuf = true;
+    ctx->capture_dmabuf = true; // true
     ctx->renderer = NULL;
     ctx->fps = 30;
 
@@ -189,67 +100,6 @@ get_nvbuff_color_fmt(unsigned int v4l2_pixfmt)
     return NvBufferColorFormat_Invalid;
 }
 
-static bool
-save_frame_to_file(context_t * ctx, struct v4l2_buffer * buf)
-{
-    int file;
-
-    file = open(ctx->cam_file, O_CREAT | O_WRONLY | O_APPEND | O_TRUNC,
-            S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-
-    if (-1 == file)
-        ERROR_RETURN("Failed to open file for frame saving");
-
-    if (-1 == write(file, ctx->g_buff[buf->index].start,
-                ctx->g_buff[buf->index].size))
-    {
-        close(file);
-        ERROR_RETURN("Failed to write frame into file");
-    }
-
-    close(file);
-
-    return true;
-}
-
-static bool
-nvbuff_do_clearchroma (int dmabuf_fd)
-{
-  NvBufferParams params = {0};
-  void *sBaseAddr[3] = {NULL};
-  int ret = 0;
-  int size;
-  unsigned i;
-
-  ret = NvBufferGetParams (dmabuf_fd, &params);
-  if (ret != 0)
-    ERROR_RETURN("%s: NvBufferGetParams Failed \n", __func__);
-
-  for (i = 1; i < params.num_planes; i++) {
-    ret = NvBufferMemMap (dmabuf_fd, i, NvBufferMem_Read_Write, &sBaseAddr[i]);
-    if (ret != 0)
-      ERROR_RETURN("%s: NvBufferMemMap Failed \n", __func__);
-
-    /* Sync device cache for CPU access since data is from VIC */
-    ret = NvBufferMemSyncForCpu (dmabuf_fd, i, &sBaseAddr[i]);
-    if (ret != 0)
-      ERROR_RETURN("%s: NvBufferMemSyncForCpu Failed \n", __func__);
-
-    size = params.height[i] * params.pitch[i];
-    memset (sBaseAddr[i], 0x80, size);
-
-    /* Sync CPU cache for VIC access since data is from CPU */
-    ret = NvBufferMemSyncForDevice (dmabuf_fd, i, &sBaseAddr[i]);
-    if (ret != 0)
-      ERROR_RETURN("%s: NvBufferMemSyncForDevice Failed \n", __func__);
-
-    ret = NvBufferMemUnMap (dmabuf_fd, i, &sBaseAddr[i]);
-    if (ret != 0)
-      ERROR_RETURN("%s: NvBufferMemUnMap Failed \n", __func__);
-  }
-
-  return true;
-}
 
 static bool
 camera_initialize(context_t * ctx)
@@ -377,6 +227,7 @@ request_camera_buff(context_t *ctx)
         buf.m.fd = (unsigned long)ctx->g_buff[index].dmabuff_fd;
         if (buf.length != ctx->g_buff[index].size)
         {
+            printf("%d", ctx->g_buff[index].size );
             WARN("Camera v4l2 buf length is not expected");
             ctx->g_buff[index].size = buf.length;
         }
@@ -436,35 +287,6 @@ request_camera_buff_mmap(context_t *ctx)
     return true;
 }
 
-static bool
-prepare_buffers_mjpeg(context_t * ctx)
-{
-    NvBufferCreateParams input_params = {0};
-
-    /* Allocate global buffer context */
-    ctx->g_buff = (nv_buffer *)malloc(V4L2_BUFFERS_NUM * sizeof(nv_buffer));
-    if (ctx->g_buff == NULL)
-        ERROR_RETURN("Failed to allocate global buffer context");
-    memset(ctx->g_buff, 0, V4L2_BUFFERS_NUM * sizeof(nv_buffer));
-
-    input_params.payloadType = NvBufferPayload_SurfArray;
-    input_params.width = ctx->cam_w;
-    input_params.height = ctx->cam_h;
-    input_params.layout = NvBufferLayout_Pitch;
-    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M);
-    input_params.nvbuf_tag = NvBufferTag_NONE;
-
-    /* Create Render buffer */
-    if (-1 == NvBufferCreateEx(&ctx->render_dmabuf_fd, &input_params))
-        ERROR_RETURN("Failed to create NvBuffer");
-
-    ctx->capture_dmabuf = false;
-    if (!request_camera_buff_mmap(ctx))
-        ERROR_RETURN("Failed to set up camera buff");
-
-    INFO("Succeed in preparing mjpeg buffers");
-    return true;
-}
 
 static bool
 prepare_buffers(context_t * ctx)
@@ -509,8 +331,8 @@ prepare_buffers(context_t * ctx)
                 ERROR_RETURN("Failed to map buffer");
         }
     }
-
-    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M);
+    
+    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M); // V4L2_PIX_FMT_YUV420M
     input_params.nvbuf_tag = NvBufferTag_NONE;
     /* Create Render buffer */
     if (-1 == NvBufferCreateEx(&ctx->render_dmabuf_fd, &input_params))
@@ -595,7 +417,7 @@ start_capture(context_t * ctx)
     /* Init the NvBufferTransformParams */
     memset(&transParams, 0, sizeof(transParams));
     transParams.transform_flag = NVBUFFER_TRANSFORM_FILTER;
-    transParams.transform_filter = NvBufferTransform_Filter_Smart;
+    transParams.transform_filter = NvBufferTransform_Filter_Smart;// NvBufferTransform_Filter_Smart;
 
     /* Enable render profiling information */
     ctx->renderer->enableProfiling();
@@ -603,8 +425,9 @@ start_capture(context_t * ctx)
     fds[0].fd = ctx->cam_fd;
     fds[0].events = POLLIN;
     /* Wait for camera event with timeout = 5000 ms */
-    while (poll(fds, 1, 5000) > 0 && !quit)
+    while (poll(fds, 1, 5000) > 0 && !quit) // 5000
     {
+        // printf("=\n");
         if (fds[0].revents & POLLIN) {
             struct v4l2_buffer v4l2_buf;
 
@@ -620,61 +443,23 @@ start_capture(context_t * ctx)
                         strerror(errno), errno);
 
             ctx->frame++;
-
-            /* Save the n-th frame to file */
-            if (ctx->frame == ctx->save_n_frame)
-                save_frame_to_file(ctx, &v4l2_buf);
-
-            if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG) {
-                int fd = 0;
-                uint32_t width, height, pixfmt;
-                unsigned int i = 0;
-                unsigned int eos_search_size = MJPEG_EOS_SEARCH_SIZE;
-                unsigned int bytesused = v4l2_buf.bytesused;
-                uint8_t *p;
-
-                /* v4l2_buf.bytesused may have padding bytes for alignment
-                   Search for EOF to get exact size */
-                if (eos_search_size > bytesused)
-                    eos_search_size = bytesused;
-                for (i = 0; i < eos_search_size; i++) {
-                    p =(uint8_t *)(ctx->g_buff[v4l2_buf.index].start + bytesused);
-                    if ((*(p-2) == 0xff) && (*(p-1) == 0xd9)) {
-                        break;
-                    }
-                    bytesused--;
-                }
-
-                /* Decoding MJPEG frame */
-                if (ctx->jpegdec->decodeToFd(fd, ctx->g_buff[v4l2_buf.index].start,
-                    bytesused, pixfmt, width, height) < 0)
-                    ERROR_RETURN("Cannot decode MJPEG");
-
-                /* Convert the decoded buffer to YUV420P */
-                if (-1 == NvBufferTransform(fd, ctx->render_dmabuf_fd,
-                        &transParams))
-                    ERROR_RETURN("Failed to convert the buffer");
+           
+            if (ctx->capture_dmabuf) {
+                /* Cache sync for VIC operation since the data is from CPU */
+                NvBufferMemSyncForDevice(ctx->g_buff[v4l2_buf.index].dmabuff_fd, 0,
+                        (void**)&ctx->g_buff[v4l2_buf.index].start);
             } else {
-                if (ctx->capture_dmabuf) {
-                    /* Cache sync for VIC operation since the data is from CPU */
-                    NvBufferMemSyncForDevice(ctx->g_buff[v4l2_buf.index].dmabuff_fd, 0,
-                            (void**)&ctx->g_buff[v4l2_buf.index].start);
-                } else {
-                    /* Copies raw buffer plane contents to an NvBuffer plane */
-                    Raw2NvBuffer(ctx->g_buff[v4l2_buf.index].start, 0,
-                             ctx->cam_w, ctx->cam_h, ctx->g_buff[v4l2_buf.index].dmabuff_fd);
-                }
-
-                /*  Convert the camera buffer from YUV422 to YUV420P */
-                if (-1 == NvBufferTransform(ctx->g_buff[v4l2_buf.index].dmabuff_fd, ctx->render_dmabuf_fd,
-                            &transParams))
-                    ERROR_RETURN("Failed to convert the buffer");
-
-                if (ctx->cam_pixfmt == V4L2_PIX_FMT_GREY) {
-                    if(!nvbuff_do_clearchroma(ctx->render_dmabuf_fd))
-                        ERROR_RETURN("Failed to clear chroma");
-                }
+                /* Copies raw buffer plane contents to an NvBuffer plane */
+                Raw2NvBuffer(ctx->g_buff[v4l2_buf.index].start, 0,
+                            ctx->cam_w, ctx->cam_h, ctx->g_buff[v4l2_buf.index].dmabuff_fd);
             }
+
+            /*  Convert the camera buffer from YUV422 to YUV420P */
+            if (-1 == NvBufferTransform(ctx->g_buff[v4l2_buf.index].dmabuff_fd, ctx->render_dmabuf_fd,
+                        &transParams))
+                ERROR_RETURN("Failed to convert the buffer");
+
+            
             // cuda_postprocess(ctx, ctx->render_dmabuf_fd);
 
             /* Preview */
@@ -719,21 +504,17 @@ main(int argc, char *argv[])
 
     set_defaults(&ctx);
 
-    CHECK_ERROR(parse_cmdline(&ctx, argc, argv), cleanup,
-            "Invalid options specified");
+    // CHECK_ERROR(parse_cmdline(&ctx, argc, argv), cleanup,
+    //         "Invalid options specified");
 
     /* Initialize camera and EGL display, EGL Display will be used to map
        the buffer to CUDA buffer for CUDA processing */
     CHECK_ERROR(init_components(&ctx), cleanup,
             "Failed to initialize v4l2 components");
 
-    if (ctx.cam_pixfmt == V4L2_PIX_FMT_MJPEG) {
-        CHECK_ERROR(prepare_buffers_mjpeg(&ctx), cleanup,
+   
+    CHECK_ERROR(prepare_buffers(&ctx), cleanup,
                 "Failed to prepare v4l2 buffs");
-    } else {
-        CHECK_ERROR(prepare_buffers(&ctx), cleanup,
-                "Failed to prepare v4l2 buffs");
-    }
 
     CHECK_ERROR(start_stream(&ctx), cleanup,
             "Failed to start streaming");

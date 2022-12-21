@@ -29,7 +29,7 @@
 #include <queue>
 #include "NvJpegDecoder.h"
 
-#define V4L2_BUFFERS_NUM    4
+#define V4L2_BUFFERS_NUM    1 // 4
 
 #define INFO(fmt, ...) \
     if (ctx->enable_verbose) \
