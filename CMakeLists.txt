@@ -34,6 +34,7 @@ include_directories(
 	# -I"$(ALGO_CUDA_DIR)" \
 	# -I"$(ALGO_TRT_DIR)" \
     include
+    cuda
     include/libjpeg-8b
 	${CUDA_PATH}/include
 	/usr/include/${TEGRA_ARMABI}
@@ -47,7 +48,7 @@ include_directories(
 
 # set(CLASS_DIR 	:= $(TOP_DIR)/samples/common/classes )
 
-file(GLOB CLASS_SRC "classes/*.cpp")
+file(GLOB CLASS_SRC "classes/*.cpp" "cuda/*.cpp" "cuda/*.cu")
 
 link_directories(	
             ${CUDA_PATH}/lib64
