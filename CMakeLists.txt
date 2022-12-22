@@ -30,25 +30,20 @@ set(CUDA_HOST_COMPILER /usr/bin/g++)
 
 
 include_directories(
-	# -I"$(TOP_DIR)/include/libjpeg-8b" \
 	# -I"$(ALGO_CUDA_DIR)" \
 	# -I"$(ALGO_TRT_DIR)" \
     include
     cuda
+    image
+    threads
     include/libjpeg-8b
 	${CUDA_PATH}/include
 	/usr/include/${TEGRA_ARMABI}
 	/usr/include/libdrm
-	# -I"$(TARGET_ROOTFS)/usr/include/opencv4"
-        # /usr/include/gstreamer-1.0 
-        # /usr/include/glib-2.0 
-        # /usr/lib/aarch64-linux-gnu/glib-2.0/include 
-        # /usr/lib/x86_64-linux-gnu/glib-2.0/include 
-        )
+    )
 
-# set(CLASS_DIR 	:= $(TOP_DIR)/samples/common/classes )
 
-file(GLOB CLASS_SRC "classes/*.cpp" "cuda/*.cpp" "cuda/*.cu")
+file(GLOB CLASS_SRC "classes/*.cpp" "cuda/*.cpp" "cuda/*.cu" "image/*.cpp threads/*.cpp ")
 
 link_directories(	
             ${CUDA_PATH}/lib64
@@ -62,24 +57,20 @@ set(CUDA_NVCC_FLAGS
 
 
 SET(GCC_COVERAGE_COMPILE_FLAGS "-std=c++14 -Wunused-function")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wno-write-strings")	
 SET( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
 
 # TARGETS --------------------------------------------------------------------------------------------------------------
 
-cuda_add_executable(${PROJECT_NAME} main.cpp ${CLASS_SRC})
+cuda_add_executable(${PROJECT_NAME} main.cpp ${CLASS_SRC} logging.cpp commandLine.cpp filesystem.cpp threads/Process.cpp)
 
 # message(WARNING ${CMAKE_MFC_FLAG})
 set(CMAKE_CXX_STANDARD 14)
 add_compile_options(${CMAKE_MFC_FLAG} )
 # add_executable(${PROJECT_NAME} main.c cssl.c)
-target_link_libraries(${PROJECT_NAME}  	-lpthread -lv4l2 -lEGL -lGLESv2 -lX11 -lnvbuf_utils -lnvjpeg -lnvosd -ldrm -lcuda -lcudart )
+target_link_libraries(${PROJECT_NAME}  	-lpthread -lv4l2 -lEGL -lGLESv2 -lX11 -lnvbuf_utils -lnvjpeg -lnvosd -ldrm -lcuda -lcudart ${CUDA_nppicc_LIBRARY})
 
 # target_include_directories(${PROJECT_NAME} PUBLIC ${CUDNN_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS} ${TensorRT_INCLUDE_DIRS})
-
-
-
-
-
 
 # target_include_directories(${PROJECT_NAME} PUBLIC )
 # cuda_add_executable(${PROJECT_NAME} utils.cu )

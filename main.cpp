@@ -39,6 +39,20 @@
 
 #include "NvEglRenderer.h"
 #include "NvUtils.h"
+
+#include <stdio.h>
+#include <cuda_runtime_api.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "cudaEGL.h"
+
+
+#include "cudaDraw.h"
 // #include "NvCudaProc.h"
 #include "nvbuf_utils.h"
 
@@ -397,6 +411,80 @@ signal_handle(int signum)
 //     return true;
 // }
 
+static bool get_img_ptr(context_t *ctx, int fd, void **img_ptr)
+{
+    // this fucntion is for facilating the grabbing pointer to image in device for furtur computions
+    /* Create EGLImage from dmabuf fd */
+    ctx->egl_image = NvEGLImageFromFd(ctx->egl_display, fd);
+        if (ctx->egl_image == NULL)
+            ERROR_RETURN("Failed to map dmabuf fd (0x%X) to EGLImage",
+                    ctx->render_dmabuf_fd);
+    
+    EGLImageKHR image = ctx->egl_image;
+    // codes for HandleEGLImage:
+    CUresult status;
+    CUeglFrame eglFrame;
+    CUgraphicsResource pResource = NULL;
+
+    cudaFree(0);
+    status = cuGraphicsEGLRegisterImage(&pResource, image,
+                CU_GRAPHICS_MAP_RESOURCE_FLAGS_NONE);
+    if (status != CUDA_SUCCESS)
+    {
+        printf("cuGraphicsEGLRegisterImage failed: %d, cuda process stop\n",
+                        status);
+        return false;
+    }
+
+    status = cuGraphicsResourceGetMappedEglFrame(&eglFrame, pResource, 0, 0);
+    if (status != CUDA_SUCCESS)
+    {
+        printf("cuGraphicsSubResourceGetMappedArray failed\n");
+    }
+
+    status = cuCtxSynchronize();
+    if (status != CUDA_SUCCESS)
+    {
+        printf("cuCtxSynchronize failed\n");
+    }
+
+    CUdeviceptr pDevPtr = (CUdeviceptr) eglFrame.frame.pPitch[0];
+    
+    // *img_ptr = (void *) pDevPtr;
+
+    cudaConvertColor( (void*) pDevPtr,IMAGE_YUYV,
+					     void* output, IMAGE_RGB8,
+					     1920, 1080,
+						 make_float2(0,255) );
+
+    cudaDrawCircle( (void*) pDevPtr, 1920, 1080, IMAGE_YUYV, 
+							100, 100, 50, make_float4(0,255,127,200) );
+
+    // --------------------------------------------------------------------------
+    // TODO:: add cuple of next lines after proccessing ...
+    
+    status = cuCtxSynchronize();
+    if (status != CUDA_SUCCESS)
+    {
+        printf("cuCtxSynchronize failed after memcpy\n");
+    }
+
+    status = cuGraphicsUnregisterResource(pResource);
+    if (status != CUDA_SUCCESS)
+    {
+        printf("cuGraphicsEGLUnRegisterResource failed: %d\n", status);
+    }
+
+
+    NvDestroyEGLImage(ctx->egl_display, ctx->egl_image);
+    ctx->egl_image = NULL;
+    
+
+   // --------------------------------------------------------------------------
+    return true;
+}
+
+
 static bool
 start_capture(context_t * ctx)
 {
@@ -461,7 +549,9 @@ start_capture(context_t * ctx)
 
             
             // cuda_postprocess(ctx, ctx->render_dmabuf_fd);
-
+            //-----------------------------------------------------------------------------------------------------------------
+            get_img_ptr(ctx, ctx->render_dmabuf_fd,NULL);
+            //-----------------------------------------------------------------------------------------------------------------
             /* Preview */
             ctx->renderer->render(ctx->render_dmabuf_fd);
 
