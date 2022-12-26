@@ -53,7 +53,7 @@ link_directories(
 
 set(CUDA_NVCC_FLAGS
     ${CUDA_NVCC_FLAGS};
-    -O3 -gencode arch=compute_72,code=sm_72)
+    -O3 -gencode arch=compute_62,code=sm_62)
 
 
 SET(GCC_COVERAGE_COMPILE_FLAGS "-std=c++14 -Wunused-function")

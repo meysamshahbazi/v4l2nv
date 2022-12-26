@@ -25,6 +25,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -58,23 +59,12 @@
 
 #include "camera_v4l2_cuda.h"
 
-#include "cudaColorspace.h"
-
-#include "cudaRGB.h"
-#include "cudaYUV.h"
-#include "cudaBayer.h"
-#include "cudaGrayscale.h"
-
-#include "logging.h"
-
-
 #define MJPEG_EOS_SEARCH_SIZE 4096
 
 static bool quit = false;
 
 using namespace std;
 
-uchar4* rgb_img = NULL;
 static void
 set_defaults(context_t * ctx)
 {
@@ -89,21 +79,15 @@ set_defaults(context_t * ctx)
     ctx->save_n_frame = 0;
 
     ctx->g_buff = NULL;
-    ctx->capture_dmabuf = false;
+    ctx->capture_dmabuf = true; // true
     ctx->renderer = NULL;
     ctx->fps = 30;
 
-    ctx->enable_cuda = false;
+    ctx->enable_cuda = true;
     ctx->egl_image = NULL;
     ctx->egl_display = EGL_NO_DISPLAY;
 
     ctx->enable_verbose = false;
-
-    size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
-    // CUresult cuResult = cuMemAlloc((CUdeviceptr*)rgb_img, bufferSize);
-    cudaError_t res;
-    res = cudaMalloc((void **) &rgb_img,bufferSize);
-    
 }
 
 static nv_color_fmt nvcolor_fmt[] =
@@ -130,6 +114,7 @@ get_nvbuff_color_fmt(unsigned int v4l2_pixfmt)
 
     return NvBufferColorFormat_Invalid;
 }
+
 
 static bool
 camera_initialize(context_t * ctx)
@@ -257,6 +242,7 @@ request_camera_buff(context_t *ctx)
         buf.m.fd = (unsigned long)ctx->g_buff[index].dmabuff_fd;
         if (buf.length != ctx->g_buff[index].size)
         {
+            printf("%d", ctx->g_buff[index].size );
             WARN("Camera v4l2 buf length is not expected");
             ctx->g_buff[index].size = buf.length;
         }
@@ -317,7 +303,6 @@ request_camera_buff_mmap(context_t *ctx)
 }
 
 
-
 static bool
 prepare_buffers(context_t * ctx)
 {
@@ -349,14 +334,20 @@ prepare_buffers(context_t * ctx)
         if (-1 == NvBufferGetParams(fd, &params))
             ERROR_RETURN("Failed to get NvBuffer parameters");
 
+        if (ctx->cam_pixfmt == V4L2_PIX_FMT_GREY &&
+            params.pitch[0] != params.width[0])
+                ctx->capture_dmabuf = false;
+
+        /* TODO: add multi-planar support
+           Currently only supports YUV422 interlaced single-planar */
         if (ctx->capture_dmabuf) {
             if (-1 == NvBufferMemMap(ctx->g_buff[index].dmabuff_fd, 0, NvBufferMem_Read_Write,
                         (void**)&ctx->g_buff[index].start))
                 ERROR_RETURN("Failed to map buffer");
         }
     }
-
-    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M);
+    
+    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M); // V4L2_PIX_FMT_YUV420M
     input_params.nvbuf_tag = NvBufferTag_NONE;
     /* Create Render buffer */
     if (-1 == NvBufferCreateEx(&ctx->render_dmabuf_fd, &input_params))
@@ -398,16 +389,37 @@ signal_handle(int signum)
     quit = true;
 }
 
-static bool
-cuda_postprocess(context_t *ctx, int fd)
+// static bool
+// cuda_postprocess(context_t *ctx, int fd)
+// {
+//     if (ctx->enable_cuda)
+//     {
+//         /* Create EGLImage from dmabuf fd */
+//         ctx->egl_image = NvEGLImageFromFd(ctx->egl_display, fd);
+//         if (ctx->egl_image == NULL)
+//             ERROR_RETURN("Failed to map dmabuf fd (0x%X) to EGLImage",
+//                     ctx->render_dmabuf_fd);
+
+//         /* Pass this buffer hooked on this egl_image to CUDA for
+//            CUDA processing - draw a rectangle on the frame */
+//         HandleEGLImage(&ctx->egl_image);
+
+//         /* Destroy EGLImage */
+//         NvDestroyEGLImage(ctx->egl_display, ctx->egl_image);
+//         ctx->egl_image = NULL;
+//     }
+
+//     return true;
+// }
+
+static bool get_img_ptr(context_t *ctx, int fd, void **img_ptr)
 {
     // this fucntion is for facilating the grabbing pointer to image in device for furtur computions
-
     /* Create EGLImage from dmabuf fd */
     ctx->egl_image = NvEGLImageFromFd(ctx->egl_display, fd);
-    if (ctx->egl_image == NULL)
-        ERROR_RETURN("Failed to map dmabuf fd (0x%X) to EGLImage",
-                ctx->render_dmabuf_fd);
+        if (ctx->egl_image == NULL)
+            ERROR_RETURN("Failed to map dmabuf fd (0x%X) to EGLImage",
+                    ctx->render_dmabuf_fd);
     
     EGLImageKHR image = ctx->egl_image;
     // codes for HandleEGLImage:
@@ -432,76 +444,34 @@ cuda_postprocess(context_t *ctx, int fd)
         printf("cuGraphicsSubResourceGetMappedArray failed\n");
     }
 
-    // status = cuCtxSynchronize();
-    // if (status != CUDA_SUCCESS)
-    // {
-    //     printf("cuCtxSynchronize failed\n");
-    // }
-    // cuCtxCreate
-    
-//     typedef struct CUeglFrame_st {
-//     union {
-//         CUarray pArray[MAX_PLANES];     /**< Array of CUarray corresponding to each plane*/
-//         void*   pPitch[MAX_PLANES];     /**< Array of Pointers corresponding to each plane*/
-//     } frame;
-//     unsigned int width;                 /**< Width of first plane */
-//     unsigned int height;                /**< Height of first plane */
-//     unsigned int depth;                 /**< Depth of first plane */
-//     unsigned int pitch;                 /**< Pitch of first plane */
-//     unsigned int planeCount;            /**< Number of planes */
-//     unsigned int numChannels;           /**< Number of channels for the plane */
-//     CUeglFrameType frameType;           /**< Array or Pitch */
-//     CUeglColorFormat eglColorFormat;    /**< CUDA EGL Color Format*/
-//     CUarray_format cuFormat;            /**< CUDA Array Format*/
-// } CUeglFrame;
-    
-    printf("width: %d\t",eglFrame.width);
-    printf("height: %d\t",eglFrame.height);
-    printf("depth: %d\t",eglFrame.depth);
-    printf("pitch: %d\t",eglFrame.pitch);
-    printf("planeCount: %d\t",eglFrame.planeCount);
-    printf("numChannels: %d\t",eglFrame.numChannels);
-    printf("frameType: %d\t",eglFrame.frameType);
-    printf("eglColorFormat: %d\n",eglFrame.eglColorFormat);
+    status = cuCtxSynchronize();
+    if (status != CUDA_SUCCESS)
+    {
+        printf("cuCtxSynchronize failed\n");
+    }
 
     void * pDevPtr = eglFrame.frame.pPitch[0];
     
-    // uchar4* rgb_img = NULL; 
-    // size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
+    uchar3* rgb_img = NULL; 
+    size_t bufferSize = 1920 * 1080 * sizeof(uchar3);
+
     // CUresult cuResult = cuMemAlloc((CUdeviceptr*)rgb_img, bufferSize);
-    cudaError_t res;
-    // res = cudaMalloc((void **) &rgb_img,bufferSize);
+    cudaMalloc((void **) &rgb_img,bufferSize);
 
-    // if (res != cudaSuccess)
+    // if (cuResult != CUDA_SUCCESS)
     // {
-    //     printf("Failed to allocate CUDA buffer\n");
+    //         printf("Failed to allocate CUDA buffer\n");
     // }
-
     // *img_ptr = (void *) pDevPtr;
 
+    cudaConvertColor( (void*) pDevPtr,IMAGE_YUYV,
+					     (void*) rgb_img, IMAGE_RGB8,
+					     1920, 1080,
+						 make_float2(0,255) ) ;
 
-    // res = cudaConvertColor( (void*) pDevPtr,IMAGE_YUYV,
-	// 				     (void*) rgb_img, IMAGE_RGBA8,
-	// 				     1920, 1080,
-	// 					 make_float2(0,255) ) ;
+    cudaDrawCircle( (void*) rgb_img, 1920, 1080, IMAGE_RGB8, 
+							100, 100, 50, make_float4(0,255,127,200) ) ;
 
-    // if (res != cudaSuccess)
-    // {
-    //     printf("cudaConvertColor failed: %d\n", res);
-    // }
-
-    // cudaYVYUToRGB(pDevPtr, (uchar3*)rgb_img, 1920, 1080);
-
-    // status = cuCtxSynchronize();
-    // if (status != CUDA_SUCCESS)
-    // {
-    //     printf("cuCtxSynchronize1 failed after memcpy\n");
-    // }
-
-    // cudaDrawCircleOnY( (void*) pDevPtr, pDevPtr, 1920, 1080, IMAGE_RGBA8, 
-	// 						100, 100, 50, make_float4(0,255,127,200) ) ;
-    cudaDrawCircleOnYUV420( (void*)eglFrame.frame.pPitch[0], (void*)eglFrame.frame.pPitch[1],(void*)eglFrame.frame.pPitch[2], 1920, 1080, IMAGE_RGBA8, 
-							100, 100, 50, make_float4(0,255,0,200) );
     // cudaConvertColor( (void*) rgb_img,IMAGE_RGB8,
 	// 				     (void*) pDevPtr, IMAGE_YUYV,
 	// 				     1920, 1080,
@@ -515,7 +485,7 @@ cuda_postprocess(context_t *ctx, int fd)
     status = cuCtxSynchronize();
     if (status != CUDA_SUCCESS)
     {
-        printf("cuCtxSynchronize2 failed after memcpy\n");
+        printf("cuCtxSynchronize failed after memcpy\n");
     }
 
     status = cuGraphicsUnregisterResource(pResource);
@@ -527,9 +497,12 @@ cuda_postprocess(context_t *ctx, int fd)
 
     NvDestroyEGLImage(ctx->egl_display, ctx->egl_image);
     ctx->egl_image = NULL;
+    
+
    // --------------------------------------------------------------------------
     return true;
 }
+
 
 static bool
 start_capture(context_t * ctx)
@@ -551,7 +524,7 @@ start_capture(context_t * ctx)
     /* Init the NvBufferTransformParams */
     memset(&transParams, 0, sizeof(transParams));
     transParams.transform_flag = NVBUFFER_TRANSFORM_FILTER;
-    transParams.transform_filter = NvBufferTransform_Filter_Smart;
+    transParams.transform_filter = NvBufferTransform_Filter_Smart;// NvBufferTransform_Filter_Smart;
 
     /* Enable render profiling information */
     ctx->renderer->enableProfiling();
@@ -559,8 +532,9 @@ start_capture(context_t * ctx)
     fds[0].fd = ctx->cam_fd;
     fds[0].events = POLLIN;
     /* Wait for camera event with timeout = 5000 ms */
-    while (poll(fds, 1, 5000) > 0 && !quit)
+    while (poll(fds, 1, 5000) > 0 && !quit) // 5000
     {
+        // printf("=\n");
         if (fds[0].revents & POLLIN) {
             struct v4l2_buffer v4l2_buf;
 
@@ -576,7 +550,7 @@ start_capture(context_t * ctx)
                         strerror(errno), errno);
 
             ctx->frame++;
-
+           
             if (ctx->capture_dmabuf) {
                 /* Cache sync for VIC operation since the data is from CPU */
                 NvBufferMemSyncForDevice(ctx->g_buff[v4l2_buf.index].dmabuff_fd, 0,
@@ -592,12 +566,13 @@ start_capture(context_t * ctx)
                         &transParams))
                 ERROR_RETURN("Failed to convert the buffer");
 
-            cuda_postprocess(ctx, ctx->render_dmabuf_fd);
-
+            
+            // cuda_postprocess(ctx, ctx->render_dmabuf_fd);
+            //-----------------------------------------------------------------------------------------------------------------
+            get_img_ptr(ctx, ctx->render_dmabuf_fd,NULL);
+            //-----------------------------------------------------------------------------------------------------------------
             /* Preview */
             ctx->renderer->render(ctx->render_dmabuf_fd);
-            // char my_str[] = "im here!";
-            // ctx->renderer->setOverlayText(my_str, 500, 500);
 
             /* Enqueue camera buffer back to driver */
             if (ioctl(ctx->cam_fd, VIDIOC_QBUF, &v4l2_buf))
@@ -646,13 +621,9 @@ main(int argc, char *argv[])
     CHECK_ERROR(init_components(&ctx), cleanup,
             "Failed to initialize v4l2 components");
 
-    // if (ctx.cam_pixfmt == V4L2_PIX_FMT_MJPEG) {
-    //     CHECK_ERROR(prepare_buffers_mjpeg(&ctx), cleanup,
-    //             "Failed to prepare v4l2 buffs");
-    // } else {
+   
     CHECK_ERROR(prepare_buffers(&ctx), cleanup,
-            "Failed to prepare v4l2 buffs");
-    // }
+                "Failed to prepare v4l2 buffs");
 
     CHECK_ERROR(start_stream(&ctx), cleanup,
             "Failed to start streaming");
@@ -693,4 +664,7 @@ cleanup:
 
     return -error;
 }
+
+
+
 

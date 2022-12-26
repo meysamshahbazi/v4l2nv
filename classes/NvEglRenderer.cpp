@@ -461,6 +461,30 @@ NvEglRenderer::renderInternal()
                     overlay_str_y_offset, overlay_str, strlen(overlay_str));
     }
 
+    // my extra for osd!
+    
+    // XFillArc(
+    // x_display		/* display */,
+    // x_window		/* d */,
+    // gc			/* gc */,
+    // 200			/* x */,
+    // 400			/* y */,
+    // 20	/* width */,
+    // 20	/* height */,
+    // 50			/* angle1 */,
+    // 40		/* angle2 */
+    // );
+
+    // XFillRectangle(
+    //     x_display		/* display */,
+    //     x_window		/* d */,
+    //     gc			/* gc */,
+    //     100			/* x */,
+    //     200			/* y */,
+    //     200	/* width */,
+    //     200	/* height */
+    // );
+
     profiler.finishProcessing(0, frame_is_late);
 
     return 0;

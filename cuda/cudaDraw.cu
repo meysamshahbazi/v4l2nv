@@ -64,6 +64,74 @@ __global__ void gpuDrawCircle( T* img, int imgWidth, int imgHeight, int offset_x
 	}
 }
 
+
+template<typename T>
+__global__ void gpuDrawCircleOnY( T* img, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, const float4 color ) 
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y + offset_y;
+
+	if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+		return;
+
+	const int dx = x - cx;
+	const int dy = y - cy;
+	
+	// if x,y is in the circle draw it
+	if( dx * dx + dy * dy < radius2 ) 
+	{
+		// const int idx = y * imgWidth + x;
+		const int idx = /* (char *)pDevPtr  + */ y * 2048 + x;
+		img[idx] = 255;
+	}
+}
+
+
+inline __device__ void rgb_to_y(const uint8_t r, const uint8_t g, const uint8_t b, uint8_t& y)
+{
+	y = static_cast<uint8_t>(((int)(30 * r) + (int)(59 * g) + (int)(11 * b)) / 100);
+}
+
+
+inline __device__ void rgb_to_yuv(const uint8_t r, const uint8_t g, const uint8_t b, uint8_t& y, uint8_t& u, uint8_t& v)
+{
+	rgb_to_y(r, g, b, y);
+	u = static_cast<uint8_t>(((int)(-17 * r) - (int)(33 * g) + (int)(50 * b) + 12800) / 100);
+	v = static_cast<uint8_t>(((int)(50 * r) - (int)(42 * g) - (int)(8 * b) + 12800) / 100);
+}
+
+template<typename T>
+__global__ void gpuDrawCircleOnYUV420( T* img_y,T* img_u,T* img_v, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, const float4 color ) 
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y + offset_y;
+
+	if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+		return;
+
+	const int dx = x - cx;
+	const int dy = y - cy;
+
+	uint8_t y_val, u_val, v_val;
+	rgb_to_yuv(uint8_t(color.x), uint8_t(color.y), uint8_t(color.z), y_val, u_val, v_val);
+	
+	// if x,y is in the circle draw it
+	if( dx * dx + dy * dy < radius2 ) 
+	{
+		// const int idx = y * imgWidth + x;
+		const int idx = y * 2048 + x;
+		const int idx_uv = y*512 + x/2;
+		img_y[idx] = y_val;
+		if(x < imgWidth/4 && y <imgHeight/2)
+		{
+			img_u[idx_uv] = u_val;
+			img_v[idx_uv] = v_val;
+		}
+	}
+}
+
+
+
 // cudaDrawCircle
 cudaError_t cudaDrawCircle( void* input, void* output, size_t width, size_t height, imageFormat format, int cx, int cy, float radius, const float4& color )
 {
@@ -103,6 +171,62 @@ cudaError_t cudaDrawCircle( void* input, void* output, size_t width, size_t heig
 		
 	return cudaGetLastError();
 }
+
+cudaError_t cudaDrawCircleOnY( void* input, void* output, size_t width, size_t height, imageFormat format, int cx, int cy, float radius, const float4& color )
+{
+	// this is my function to draw cirle on Y channel of YUV image.. 
+	if( !input || !output || width == 0 || height == 0 || radius <= 0 )
+		return cudaErrorInvalidValue;
+
+	// if the input and output images are different, copy the input to the output
+	// this is because we only launch the kernel in the approximate area of the circle
+	if( input != output )
+		CUDA(cudaMemcpy(output, input, imageFormatSize(format, width, height), cudaMemcpyDeviceToDevice));
+		
+	// find a box around the circle
+	const int diameter = ceilf(radius * 2.0f);
+	const int offset_x = cx - radius;
+	const int offset_y = cy - radius;
+	
+	// launch kernel
+	const dim3 blockDim(8, 8);
+	const dim3 gridDim(iDivUp(diameter,blockDim.x), iDivUp(diameter,blockDim.y));
+
+	#define LAUNCH_DRAW_CIRCLE_ON_Y(type) \
+		gpuDrawCircleOnY<type><<<gridDim, blockDim>>>((type*)output, width, height, offset_x, offset_y, cx, cy, radius*radius, color)
+	
+
+	LAUNCH_DRAW_CIRCLE_ON_Y(uchar);		
+	return cudaGetLastError();
+}
+
+cudaError_t cudaDrawCircleOnYUV420( void* input_y, void* input_u,void* input_v, size_t width, size_t height, imageFormat format, int cx, int cy, float radius, const float4& color )
+{
+	// this is my function to draw cirle on Y channel of YUV image.. 
+	if( !input_y || !input_u || !input_v  || width == 0 || height == 0 || radius <= 0 )
+		return cudaErrorInvalidValue;
+
+	// if the input and output images are different, copy the input to the output
+	// this is because we only launch the kernel in the approximate area of the circle
+	// if( input != output )
+	// 	CUDA(cudaMemcpy(output, input, imageFormatSize(format, width, height), cudaMemcpyDeviceToDevice));
+		
+	// find a box around the circle
+	const int diameter = ceilf(radius * 2.0f);
+	const int offset_x = cx - radius;
+	const int offset_y = cy - radius;
+	
+	// launch kernel
+	const dim3 blockDim(8, 8);
+	const dim3 gridDim(iDivUp(diameter,blockDim.x), iDivUp(diameter,blockDim.y));
+
+	#define LAUNCH_DRAW_CIRCLE_ON_YUV420(type) \
+		gpuDrawCircleOnYUV420<type><<<gridDim, blockDim>>>((type*)input_y, (type*)input_u, (type*)input_v, width, height, offset_x, offset_y, cx, cy, radius*radius, color)
+	
+	LAUNCH_DRAW_CIRCLE_ON_YUV420(uchar);		
+	return cudaGetLastError();
+}
+
 
 
 //----------------------------------------------------------------------------

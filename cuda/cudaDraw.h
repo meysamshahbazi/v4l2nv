@@ -34,7 +34,42 @@
  */
 cudaError_t cudaDrawCircle( void* input, void* output, size_t width, size_t height, imageFormat format, 
 					   int cx, int cy, float radius, const float4& color );
-	
+
+/**
+ * @brief my custom function for drawwing on Y channle of YUV image 
+ * 
+ * @param input 
+ * @param output 
+ * @param width 
+ * @param height 
+ * @param format 
+ * @param cx 
+ * @param cy 
+ * @param radius 
+ * @param color 
+ * @return * cudaError_t 
+ */
+cudaError_t cudaDrawCircleOnY( void* input, void* output, size_t width, size_t height, imageFormat format,
+						int cx, int cy, float radius, const float4& color );
+
+/**
+ * @brief my custom function that convert rgb color to yuv and draw circle with givven collor to yuv image 
+ * 
+ * @param input_y 
+ * @param input_u 
+ * @param input_v 
+ * @param width 
+ * @param height 
+ * @param format 
+ * @param cx 
+ * @param cy 
+ * @param radius 
+ * @param color 
+ * @return cudaError_t 
+ */
+cudaError_t cudaDrawCircleOnYUV420( void* input_y, void* input_u,void* input_v, size_t width, size_t height, imageFormat format, 
+					int cx, int cy, float radius, const float4& color );
+
 /**
  * cudaDrawCircle
  * @ingroup drawing
