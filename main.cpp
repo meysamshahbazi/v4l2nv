@@ -82,7 +82,7 @@ set_defaults(context_t * ctx)
 
     ctx->cam_devname = "/dev/video0";
     ctx->cam_fd = -1;
-    ctx->cam_pixfmt = V4L2_PIX_FMT_YUYV;
+    ctx->cam_pixfmt = V4L2_PIX_FMT_UYVY;
     ctx->cam_w = 1920;
     ctx->cam_h = 1080;
     ctx->frame = 0;
@@ -99,10 +99,10 @@ set_defaults(context_t * ctx)
 
     ctx->enable_verbose = false;
 
-    size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
+    // size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
     // CUresult cuResult = cuMemAlloc((CUdeviceptr*)rgb_img, bufferSize);
-    cudaError_t res;
-    res = cudaMalloc((void **) &rgb_img,bufferSize);
+    // cudaError_t res;
+    // res = cudaMalloc((void **) &rgb_img,bufferSize);
     
 }
 
@@ -356,7 +356,7 @@ prepare_buffers(context_t * ctx)
         }
     }
 
-    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M);
+    input_params.colorFormat = get_nvbuff_color_fmt(V4L2_PIX_FMT_YUV420M);// 
     input_params.nvbuf_tag = NvBufferTag_NONE;
     /* Create Render buffer */
     if (-1 == NvBufferCreateEx(&ctx->render_dmabuf_fd, &input_params))
@@ -455,16 +455,16 @@ cuda_postprocess(context_t *ctx, int fd)
 //     CUarray_format cuFormat;            /**< CUDA Array Format*/
 // } CUeglFrame;
     
-    printf("width: %d\t",eglFrame.width);
-    printf("height: %d\t",eglFrame.height);
-    printf("depth: %d\t",eglFrame.depth);
-    printf("pitch: %d\t",eglFrame.pitch);
-    printf("planeCount: %d\t",eglFrame.planeCount);
-    printf("numChannels: %d\t",eglFrame.numChannels);
-    printf("frameType: %d\t",eglFrame.frameType);
-    printf("eglColorFormat: %d\n",eglFrame.eglColorFormat);
+    // printf("width: %d\t",eglFrame.width);
+    // printf("height: %d\t",eglFrame.height);
+    // printf("depth: %d\t",eglFrame.depth);
+    // printf("pitch: %d\t",eglFrame.pitch);
+    // printf("planeCount: %d\t",eglFrame.planeCount);
+    // printf("numChannels: %d\t",eglFrame.numChannels);
+    // printf("frameType: %d\t",eglFrame.frameType);
+    // printf("eglColorFormat: %d\n",eglFrame.eglColorFormat);
 
-    void * pDevPtr = eglFrame.frame.pPitch[0];
+    // void * pDevPtr = eglFrame.frame.pPitch[0];
     
     // uchar4* rgb_img = NULL; 
     // size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
@@ -501,14 +501,14 @@ cuda_postprocess(context_t *ctx, int fd)
     // cudaDrawCircleOnY( (void*) pDevPtr, pDevPtr, 1920, 1080, IMAGE_RGBA8, 
 	// 						100, 100, 50, make_float4(0,255,127,200) ) ;
     cudaDrawCircleOnYUV420( (void*)eglFrame.frame.pPitch[0], (void*)eglFrame.frame.pPitch[1],(void*)eglFrame.frame.pPitch[2], 1920, 1080, IMAGE_RGBA8, 
-							100, 100, 50, make_float4(0,255,0,200) );
+							960, 540, 100, make_float4(0,255,0,200) );
     // cudaConvertColor( (void*) rgb_img,IMAGE_RGB8,
 	// 				     (void*) pDevPtr, IMAGE_YUYV,
 	// 				     1920, 1080,
 	// 					 make_float2(0,255) ) ;
 
 
-    eglFrame.frame.pPitch[0] = (void*) rgb_img;
+    // eglFrame.frame.pPitch[0] = (void*) rgb_img;
     // --------------------------------------------------------------------------
     // TODO:: add cuple of next lines after proccessing ...
     
@@ -545,8 +545,8 @@ start_capture(context_t * ctx)
     sig_action.sa_flags = 0;
     sigaction(SIGINT, &sig_action, NULL);
 
-    if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG)
-        ctx->jpegdec = NvJPEGDecoder::createJPEGDecoder("jpegdec");
+    // if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG)
+    //     ctx->jpegdec = NvJPEGDecoder::createJPEGDecoder("jpegdec");
 
     /* Init the NvBufferTransformParams */
     memset(&transParams, 0, sizeof(transParams));
@@ -609,8 +609,8 @@ start_capture(context_t * ctx)
     /* Print profiling information when streaming stops */
     ctx->renderer->printProfilingStats();
 
-    if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG)
-        delete ctx->jpegdec;
+    // if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG)
+    //     delete ctx->jpegdec;
 
     return true;
 }
@@ -678,8 +678,8 @@ cleanup:
         for (unsigned i = 0; i < V4L2_BUFFERS_NUM; i++) {
             if (ctx.g_buff[i].dmabuff_fd)
                 NvBufferDestroy(ctx.g_buff[i].dmabuff_fd);
-            if (ctx.cam_pixfmt == V4L2_PIX_FMT_MJPEG)
-                munmap(ctx.g_buff[i].start, ctx.g_buff[i].size);
+            // if (ctx.cam_pixfmt == V4L2_PIX_FMT_MJPEG)
+            //     munmap(ctx.g_buff[i].start, ctx.g_buff[i].size);
         }
         free(ctx.g_buff);
     }

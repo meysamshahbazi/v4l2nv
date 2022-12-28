@@ -86,6 +86,26 @@ __global__ void gpuDrawCircleOnY( T* img, int imgWidth, int imgHeight, int offse
 	}
 }
 
+template<typename T>
+__global__ void gpuDrawCircleOnOnePlane( T* img, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, uint8_t color, int pitch ) 
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y + offset_y;
+
+	if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+		return;
+
+	const int dx = x - cx;
+	const int dy = y - cy;
+	
+	// if x,y is in the circle draw it
+	if( dx * dx + dy * dy < radius2 ) 
+	{
+		// const int idx = y * imgWidth + x;
+		const int idx = /* (char *)pDevPtr  + */ y * pitch + x;
+		img[idx] = color;
+	}
+}
 
 inline __device__ void rgb_to_y(const uint8_t r, const uint8_t g, const uint8_t b, uint8_t& y)
 {
@@ -120,14 +140,27 @@ __global__ void gpuDrawCircleOnYUV420( T* img_y,T* img_u,T* img_v, int imgWidth,
 	{
 		// const int idx = y * imgWidth + x;
 		const int idx = y * 2048 + x;
-		const int idx_uv = y*512 + x/2;
+		// const int idx_uv = y*512 + x/2;
 		img_y[idx] = y_val;
-		if(x < imgWidth/4 && y <imgHeight/2)
-		{
-			img_u[idx_uv] = u_val;
-			img_v[idx_uv] = v_val;
-		}
+		// if(x < imgWidth/8 && y <imgHeight/2)
+		// {
+			// img_u[idx_uv] = u_val;
+			// img_v[idx_uv] = v_val;
+		// }
 	}
+
+	// if( 2*dx * dx + 2*dy * dy < radius2 ) 
+	// {
+	// 	// const int idx = y * imgWidth + x;
+	// 	// const int idx = y * 2048 + x;
+	// 	const int idx_uv = y*512 + x/2;
+	// 	// img_y[idx] = y_val;
+	// 	// if(x < imgWidth/8 && y <imgHeight/2)
+	// 	// {
+	// 		img_u[idx_uv] = u_val;
+	// 		img_v[idx_uv] = v_val;
+	// 	// }
+	// }
 }
 
 
@@ -212,18 +245,23 @@ cudaError_t cudaDrawCircleOnYUV420( void* input_y, void* input_u,void* input_v, 
 	// 	CUDA(cudaMemcpy(output, input, imageFormatSize(format, width, height), cudaMemcpyDeviceToDevice));
 		
 	// find a box around the circle
-	const int diameter = ceilf(radius * 2.0f);
+	const int diameter_y = ceilf(radius * 2.0f);
 	const int offset_x = cx - radius;
 	const int offset_y = cy - radius;
 	
 	// launch kernel
 	const dim3 blockDim(8, 8);
-	const dim3 gridDim(iDivUp(diameter,blockDim.x), iDivUp(diameter,blockDim.y));
+	const dim3 gridDim_y(iDivUp(diameter_y,blockDim.x), iDivUp(diameter_y,blockDim.y));
+	const dim3 gridDim_uv(iDivUp(ceilf(radius),blockDim.x), iDivUp(ceilf(radius),blockDim.y));
 
-	#define LAUNCH_DRAW_CIRCLE_ON_YUV420(type) \
-		gpuDrawCircleOnYUV420<type><<<gridDim, blockDim>>>((type*)input_y, (type*)input_u, (type*)input_v, width, height, offset_x, offset_y, cx, cy, radius*radius, color)
-	
-	LAUNCH_DRAW_CIRCLE_ON_YUV420(uchar);		
+	uint8_t y = static_cast<uint8_t>(((int)(30 * color.x) + (int)(59 * color.y) + (int)(11 * color.z)) / 100);
+	uint8_t u = static_cast<uint8_t>(((int)(-17 * color.x) - (int)(33 * color.y) + (int)(50 * color.z) + 12800) / 100);
+	uint8_t v = static_cast<uint8_t>(((int)(50 * color.x) - (int)(42 * color.y) - (int)(8 * color.z) + 12800) / 100);
+
+	gpuDrawCircleOnOnePlane<uchar><<<gridDim_y,blockDim>>>((uchar*)input_y, width, height, offset_x, offset_y, cx, cy, radius*radius, y, 2048);
+	gpuDrawCircleOnOnePlane<uchar><<<gridDim_uv,blockDim>>>((uchar*)input_u, width/2, height/2, offset_x/2, offset_y/2, cx/2, cy/2, radius*radius/4, u,1024);
+	gpuDrawCircleOnOnePlane<uchar><<<gridDim_uv,blockDim>>>((uchar*)input_v, width/2, height/2, offset_x/2, offset_y/2, cx/2, cy/2, radius*radius/4, v, 1024);
+
 	return cudaGetLastError();
 }
 
