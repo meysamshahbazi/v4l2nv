@@ -365,6 +365,56 @@ __global__ void gpuOverlayText( unsigned char* font, int fontWidth, GlyphCommand
 	output[y * imgWidth + x] = cast_vec<T>(alpha_blend(px_in, px_font));	 
 }
 
+/**
+ * @brief my custom kernle for drawing text on image  of yuv type 
+ * 
+ * @tparam T 
+ * @param font 
+ * @param fontWidth 
+ * @param commands 
+ * @param input 
+ * @param output 
+ * @param imgWidth 
+ * @param imgHeight 
+ * @param color 
+ * @return __global__ 
+ */
+template<typename T>
+__global__ void gpuOverlayTextOnPlane( unsigned char* font, int fontWidth, GlyphCommand* commands,
+						  T* input, T* output, int imgWidth, int imgHeight, float4 color ) 
+{
+	const GlyphCommand cmd = commands[blockIdx.x];
+
+	if( threadIdx.x >= cmd.width || threadIdx.y >= cmd.height )
+		return;
+
+	const int x = cmd.x + threadIdx.x;
+	const int y = cmd.y + threadIdx.y;
+
+	if( x < 0 || y < 0 || x >= imgWidth || y >= imgHeight )
+		return;
+
+	const int u = cmd.u + threadIdx.x;
+	const int v = cmd.v + threadIdx.y;
+
+	const float px_glyph = font[v * fontWidth + u];
+
+	// const float4 px_font = make_float4(px_glyph * color.x, px_glyph * color.y, px_glyph * color.z, px_glyph * color.w);
+	// const float4 px_in   = cast_vec<float4>(input[y *2048 /* imgWidth */ + x]);
+
+	// const uchar px_in   = cast_vec<float4>(make_uchar3 (input[y *2048 /* imgWidth */ + x],input[y *2048 /* imgWidth */ + x],input[y *2048 /* imgWidth */ + x]));
+
+	// output[y *2048 /* imgWidth */  + x] =  cast_vec<T>(alpha_blend(px_in, px_font));	 
+
+
+	const uchar px_font = px_glyph; //*255; //make_float4(px_glyph * color.x, px_glyph * color.y, px_glyph * color.z, px_glyph * color.w);
+	const uchar px_in   =  input[y *2048 /* imgWidth */ + x] ;// cast_vec<float4>(make_uchar3 (input[y *2048 /* imgWidth */ + x],input[y *2048 /* imgWidth */ + x],input[y *2048 /* imgWidth */ + x]));
+	if(px_glyph != 0) // TODO: remove this if and use bilinear combinatnion
+		output[y *2048 /*imgWidth */+ x] =  255; //px_glyph + px_in;// 255; //static_cast<uchar>(alpha_blend(px_in, px_font));	 
+
+}
+
+
 
 // cudaOverlayText
 cudaError_t cudaOverlayText( unsigned char* font, const int2& maxGlyphSize, size_t fontMapWidth,
@@ -393,6 +443,202 @@ cudaError_t cudaOverlayText( unsigned char* font, const int2& maxGlyphSize, size
 
 	return cudaGetLastError();
 }
+
+
+cudaError_t cudaOverlayTextOnPlane( unsigned char* font, const int2& maxGlyphSize, size_t fontMapWidth,
+					    GlyphCommand* commands, size_t numCommands, const float4& fontColor, 
+					    void* input, void* output,/*  imageFormat format, */ size_t imgWidth, size_t imgHeight)	
+{
+	if( !font || !commands || !input || !output || numCommands == 0 || fontMapWidth == 0 || imgWidth == 0 || imgHeight == 0 )
+		return cudaErrorInvalidValue;
+
+	const float4 color_scaled = make_float4( fontColor.x / 255.0f, fontColor.y / 255.0f, fontColor.z / 255.0f, fontColor.w / 255.0f );
+	
+	// setup arguments
+	const dim3 block(maxGlyphSize.x, maxGlyphSize.y);
+	const dim3 grid(numCommands);
+
+	gpuOverlayTextOnPlane<uchar><<<grid, block>>>(font, fontMapWidth, commands, (uchar*)input, (uchar*)output, imgWidth, imgHeight, color_scaled); 
+
+	return cudaGetLastError();
+}
+
+
+bool cudaFont::OverlayTextOnPlane( void* image, /* imageFormat format, */ uint32_t width, uint32_t height, 
+					   const std::vector< std::pair< std::string, int2 > >& strings, 
+					   const float4& color, const float4& bg_color, int bg_padding )
+{
+	const uint32_t numStrings = strings.size();
+
+	if( !image || width == 0 || height == 0 || numStrings == 0 )
+		return false;
+
+	// if( format != IMAGE_RGB8 && format != IMAGE_RGBA8 && format != IMAGE_RGB32F && format != IMAGE_RGBA32F )
+	// {
+	// 	LogError(LOG_CUDA "cudaFont::OverlayText() -- unsupported image format (%s)\n", imageFormatToStr(format));
+	// 	LogError(LOG_CUDA "                           supported formats are:\n");
+	// 	LogError(LOG_CUDA "                              * rgb8\n");		
+	// 	LogError(LOG_CUDA "                              * rgba8\n");		
+	// 	LogError(LOG_CUDA "                              * rgb32f\n");		
+	// 	LogError(LOG_CUDA "                              * rgba32f\n");
+
+	// 	return false;
+	// }
+
+	
+	const bool has_bg = bg_color.w > 0.0f;
+	int2 maxGlyphSize = make_int2(0,0);
+
+	int numCommands = 0;
+	int numRects = 0;
+	int maxChars = 0;
+
+	// find the bg rects and total char count
+	for( uint32_t s=0; s < numStrings; s++ )
+		maxChars += strings[s].first.size();
+
+	// reset the buffer indices if we need the space
+	if( mCmdIndex + maxChars >= MaxCommands )
+		mCmdIndex = 0;
+
+	if( has_bg && mRectIndex + numStrings >= MaxCommands )
+		mRectIndex = 0;
+
+	// generate glyph commands and bg rects
+	for( uint32_t s=0; s < numStrings; s++ )
+	{
+		const uint32_t numChars = strings[s].first.size();
+		
+		if( numChars == 0 )
+			continue;
+
+		// determine the max 'height' of the string
+		int maxHeight = 0;
+
+		for( uint32_t n=0; n < numChars; n++ )
+		{
+			char c = strings[s].first[n];
+			
+			if( c < FirstGlyph || c > LastGlyph )
+				continue;
+			
+			c -= FirstGlyph;
+
+			const int yOffset = abs((int)mGlyphInfo[c].yOffset);
+
+			if( maxHeight < yOffset )
+				maxHeight = yOffset;
+		}
+
+	#ifdef DEBUG_FONT
+		LogDebug(LOG_CUDA "max glyph height:  %i\n", maxHeight);
+	#endif
+
+		// get the starting position of the string
+		int2 pos = strings[s].second;
+
+		if( pos.x < 0 )
+			pos.x = 0;
+
+		if( pos.y < 0 )
+			pos.y = 0;
+		
+		pos.y += maxHeight;
+
+		// reset the background rect if needed
+		if( has_bg )
+			mRectsCPU[mRectIndex] = make_float4(width, height, 0, 0);
+
+		// make a glyph command for each character
+		for( uint32_t n=0; n < numChars; n++ )
+		{
+			char c = strings[s].first[n];
+			
+			// make sure the character is in range
+			if( c < FirstGlyph || c > LastGlyph )
+				continue;
+			
+			c -= FirstGlyph;	// rebase char against glyph 0
+			
+			// fill the next command
+			GlyphCommand* cmd = ((GlyphCommand*)mCommandCPU) + mCmdIndex + numCommands;
+
+			cmd->x = pos.x;
+			cmd->y = pos.y + mGlyphInfo[c].yOffset;
+			cmd->u = mGlyphInfo[c].x;
+			cmd->v = mGlyphInfo[c].y;
+
+			cmd->width  = mGlyphInfo[c].width;
+			cmd->height = mGlyphInfo[c].height;
+		
+			// advance the text position
+			pos.x += mGlyphInfo[c].xAdvance;
+
+			// track the maximum glyph size
+			if( maxGlyphSize.x < mGlyphInfo[c].width )
+				maxGlyphSize.x = mGlyphInfo[c].width;
+
+			if( maxGlyphSize.y < mGlyphInfo[c].height )
+				maxGlyphSize.y = mGlyphInfo[c].height;
+
+			// expand the background rect
+			if( has_bg )
+			{
+				float4* rect = mRectsCPU + mRectIndex + numRects;
+
+				if( cmd->x < rect->x )
+					rect->x = cmd->x;
+
+				if( cmd->y < rect->y )
+					rect->y = cmd->y;
+
+				const float x2 = cmd->x + cmd->width;
+				const float y2 = cmd->y + cmd->height;
+
+				if( x2 > rect->z )
+					rect->z = x2;
+
+				if( y2 > rect->w )
+					rect->w = y2;
+			}
+
+			numCommands++;
+		}
+
+		if( has_bg )
+		{
+			float4* rect = mRectsCPU + mRectIndex + numRects;
+
+			// apply padding
+			rect->x -= bg_padding;
+			rect->y -= bg_padding;
+			rect->z += bg_padding;
+			rect->w += bg_padding;
+
+			numRects++;
+		}
+	}
+
+#ifdef DEBUG_FONT
+	LogDebug(LOG_CUDA "max glyph size is %ix%i\n", maxGlyphSize.x, maxGlyphSize.y);
+#endif
+
+	// draw background rects
+	// if( has_bg && numRects > 0 )
+	// 	CUDA(cudaRectFill(image, image, width, height, format, mRectsGPU + mRectIndex, numRects, bg_color));
+
+	// draw text characters
+	CUDA(cudaOverlayTextOnPlane( mFontMapGPU, maxGlyphSize, mFontMapWidth,
+				       ((GlyphCommand*)mCommandGPU) + mCmdIndex, numCommands, 
+					  color, image, image, /* format, */ width, height));
+			
+	// advance the buffer indices
+	mCmdIndex += numCommands;
+	mRectIndex += numRects;
+		   
+	return true;
+}
+
 
 
 // Overlay
@@ -572,6 +818,198 @@ bool cudaFont::OverlayText( void* image, imageFormat format, uint32_t width, uin
 }
 
 
+// bool cudaFont::OverlayTextOnPlane( void* image/* , imageFormat format */, uint32_t width, uint32_t height, 
+// 					   const std::vector< std::pair< std::string, int2 > >& strings, 
+// 					   const float4& color, const float4& bg_color, int bg_padding )
+// {
+// 	const uint32_t numStrings = strings.size();
+
+// 	// printf("numStrings: %d\n",numStrings);
+	
+// 	if( !image || width == 0 || height == 0 || numStrings == 0 )
+// 		return false;
+
+// 	// if( format != IMAGE_RGB8 && format != IMAGE_RGBA8 && format != IMAGE_RGB32F && format != IMAGE_RGBA32F )
+// 	// {
+// 	// 	LogError(LOG_CUDA "cudaFont::OverlayText() -- unsupported image format (%s)\n", imageFormatToStr(format));
+// 	// 	LogError(LOG_CUDA "                           supported formats are:\n");
+// 	// 	LogError(LOG_CUDA "                              * rgb8\n");		
+// 	// 	LogError(LOG_CUDA "                              * rgba8\n");		
+// 	// 	LogError(LOG_CUDA "                              * rgb32f\n");		
+// 	// 	LogError(LOG_CUDA "                              * rgba32f\n");
+
+// 	// 	return false;
+// 	// }
+
+	
+// 	const bool has_bg = false; // bg_color.w > 0.0f; // TODO: manage bg
+// 	int2 maxGlyphSize = make_int2(0,0);
+
+// 	int numCommands = 0;
+// 	int numRects = 0;
+// 	int maxChars = 0;
+
+// 	// find the bg rects and total char count
+// 	for( uint32_t s=0; s < numStrings; s++ )
+// 		maxChars += strings[s].first.size();
+
+// 	// printf("IM here3.5 \n");
+
+// 	// reset the buffer indices if we need the space
+// 	if( mCmdIndex + maxChars >= MaxCommands )
+// 		mCmdIndex = 0;
+
+	
+// 	if( has_bg && mRectIndex + numStrings >= MaxCommands )
+// 		mRectIndex = 0;
+
+// 	// generate glyph commands and bg rects
+// 	for( uint32_t s=0; s < numStrings; s++ )
+// 	{
+// 		const uint32_t numChars = strings[s].first.size();
+// 		// printf("numChars: %d\n",numChars);
+// 		if( numChars == 0 )
+// 			continue;
+
+// 		// determine the max 'height' of the string
+// 		int maxHeight = 0;
+
+// 		for( uint32_t n=0; n < numChars; n++ )
+// 		{
+// 			char c = strings[s].first[n];
+			
+			 
+// 			if( c < FirstGlyph || c > LastGlyph )
+// 				continue;
+			
+// 			c -= FirstGlyph;
+
+// 			const int yOffset = abs((int)mGlyphInfo[c].yOffset);
+
+// 			// printf("IM here_%d \n",n);
+// 			if( maxHeight < yOffset )
+// 				maxHeight = yOffset;
+				
+// 		}
+
+// 	#ifdef DEBUG_FONT
+// 		LogDebug(LOG_CUDA "max glyph height:  %i\n", maxHeight);
+// 	#endif
+
+// 		// get the starting position of the string
+// 		int2 pos = strings[s].second;
+
+// 		if( pos.x < 0 )
+// 			pos.x = 0;
+
+// 		if( pos.y < 0 )
+// 			pos.y = 0;
+		
+// 		pos.y += maxHeight;
+
+// 		// reset the background rect if needed
+// 		// printf("IM here4.5 \n");
+// 		if( has_bg )
+// 			mRectsCPU[mRectIndex] = make_float4(width, height, 0, 0);
+		
+// 		// make a glyph command for each character
+// 		for( uint32_t n=0; n < numChars; n++ )
+// 		{
+// 			char c = strings[s].first[n];
+			
+// 			// make sure the character is in range
+// 			if( c < FirstGlyph || c > LastGlyph )
+// 				continue;
+			
+// 			c -= FirstGlyph;	// rebase char against glyph 0
+			
+// 			// printf("IM here6.5 \n");
+// 			// fill the next command
+// 			GlyphCommand* cmd = ((GlyphCommand*)mCommandCPU) + mCmdIndex + numCommands;
+// 			// printf("IM here7.5 \n");
+// 			cmd->x = pos.x;
+// 			cmd->y = pos.y + mGlyphInfo[c].yOffset;
+// 			cmd->u = mGlyphInfo[c].x;
+// 			cmd->v = mGlyphInfo[c].y;
+
+// 			cmd->width  = mGlyphInfo[c].width;
+// 			cmd->height = mGlyphInfo[c].height;
+		
+// 			// advance the text position
+// 			pos.x += mGlyphInfo[c].xAdvance;
+
+// 			// track the maximum glyph size
+// 			if( maxGlyphSize.x < mGlyphInfo[c].width )
+// 				maxGlyphSize.x = mGlyphInfo[c].width;
+
+// 			if( maxGlyphSize.y < mGlyphInfo[c].height )
+// 				maxGlyphSize.y = mGlyphInfo[c].height;
+
+// 			// expand the background rect
+// 			if( has_bg )
+// 			{
+// 				float4* rect = mRectsCPU + mRectIndex + numRects;
+
+// 				if( cmd->x < rect->x )
+// 					rect->x = cmd->x;
+
+// 				if( cmd->y < rect->y )
+// 					rect->y = cmd->y;
+
+// 				const float x2 = cmd->x + cmd->width;
+// 				const float y2 = cmd->y + cmd->height;
+
+// 				if( x2 > rect->z )
+// 					rect->z = x2;
+
+// 				if( y2 > rect->w )
+// 					rect->w = y2;
+// 			}
+
+// 			numCommands++;
+// 		}
+
+// 		if( has_bg )
+// 		{
+// 			float4* rect = mRectsCPU + mRectIndex + numRects;
+
+// 			// apply padding
+// 			rect->x -= bg_padding;
+// 			rect->y -= bg_padding;
+// 			rect->z += bg_padding;
+// 			rect->w += bg_padding;
+
+// 			numRects++;
+// 		}
+// 	}
+
+// #ifdef DEBUG_FONT
+// 	LogDebug(LOG_CUDA "max glyph size is %ix%i\n", maxGlyphSize.x, maxGlyphSize.y);
+// #endif
+
+// 	//  @todo: fill background 
+
+// 	// draw background rects
+	
+// 	// if( has_bg && numRects > 0 )
+// 	// 	CUDA(cudaRectFill(image, image, width, height, format, mRectsGPU + mRectIndex, numRects, bg_color));
+
+// 	// draw text characters
+	
+// 	CUDA(cudaOverlayTextOnPlane( mFontMapGPU, maxGlyphSize, mFontMapWidth,
+// 				       ((GlyphCommand*)mCommandGPU) + mCmdIndex, numCommands, 
+// 					  color, image, image, width, height));
+	
+// 	// advance the buffer indices
+// 	mCmdIndex += numCommands;
+// 	mRectIndex += numRects;
+		   
+// 	return true;
+// }
+
+
+
+
 // Overlay
 bool cudaFont::OverlayText( void* image, imageFormat format, uint32_t width, uint32_t height, 
 					   const char* str, int x, int y, 
@@ -585,6 +1023,22 @@ bool cudaFont::OverlayText( void* image, imageFormat format, uint32_t width, uin
 	list.push_back( std::pair< std::string, int2 >( str, make_int2(x,y) ));
 
 	return OverlayText(image, format, width, height, list, color, bg_color, bg_padding);
+}
+
+// Overlay
+bool cudaFont::OverlayTextOnPlane( void* image, imageFormat format, uint32_t width, uint32_t height, 
+					   const char* str, int x, int y, 
+					   const float4& color, const float4& bg_color, int bg_padding )
+{
+	if( !str )
+		return NULL;
+		
+	std::vector< std::pair< std::string, int2 > > list;
+	
+	list.push_back( std::pair< std::string, int2 >( str, make_int2(x,y) ));
+
+	
+	return OverlayTextOnPlane(image, /* format, */ width, height, list, color, bg_color, bg_padding);
 }
 
 

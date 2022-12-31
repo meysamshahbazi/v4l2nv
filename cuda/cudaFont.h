@@ -87,6 +87,56 @@ public:
 				   int backgroundPadding=5 );
 
 	/**
+	 * @brief OverlayTextOnPlane
+	 * 
+	 * @param image 
+	 * @param format 
+	 * @param width 
+	 * @param height 
+	 * @param str 
+	 * @param x 
+	 * @param y 
+	 * @param color 
+	 * @param background 
+	 * @param backgroundPadding 
+	 * @return true 
+	 * @return false 
+	 */
+	bool OverlayTextOnPlane( void* image, imageFormat format,
+				   uint32_t width, uint32_t height, 
+			        const char* str, int x, int y, 
+				   const float4& color=make_float4(0, 0, 0, 255),
+				   const float4& background=make_float4(0, 0, 0, 0),
+				   int backgroundPadding=5 );
+
+	/**
+	 * @brief my custom function  for overlay text for images like YUV
+	 * 
+	 * @param image 
+	 * @param format 
+	 * @param width 
+	 * @param height 
+	 * @param str 
+	 * @param x 
+	 * @param y 
+	 * @param color 
+	 * @param background 
+	 * @param backgroundPadding 
+	 * @return true 
+	 * @return false 
+	 */
+	// bool OverlayTextOnPlane( void* image, /* imageFormat format, */
+	// 			   	uint32_t width, uint32_t height, 
+	// 		    	const char* str, int x, int y, 
+	// 				const float4& color=make_float4(0, 0, 0, 255),
+	// 				const float4& background=make_float4(0, 0, 0, 0),
+	// 				int backgroundPadding=5 );
+
+	bool OverlayTextOnPlane( void* image/* , imageFormat format */, uint32_t width, uint32_t height, 
+					   const std::vector< std::pair< std::string, int2 > >& strings, 
+					   const float4& color, const float4& bg_color, int bg_padding );
+
+	/**
 	 * Render text overlay onto image
 	 */
 	bool OverlayText( void* image, imageFormat format, 
@@ -107,7 +157,33 @@ public:
 	{ 
 		return OverlayText(image, imageFormatFromType<T>(), width, height, str, x, y, color, background, backgroundPadding); 
 	}
-			
+
+	/**
+	 * @brief my custom function for overlay text on single plane 
+	 * 
+	 * @tparam T 
+	 * @param image 
+	 * @param width 
+	 * @param height 
+	 * @param str 
+	 * @param x 
+	 * @param y 
+	 * @param color 
+	 * @param background 
+	 * @param backgroundPadding 
+	 * @return true 
+	 * @return false 
+	 */
+	template<typename T> bool OverlayTextOnPlane( T* image, uint32_t width, uint32_t height, 
+												const char* str, int x, int y, 
+												const float4& color=make_float4(0, 0, 0, 255),
+												const float4& background=make_float4(0, 0, 0, 0),
+												int backgroundPadding=5 )		
+	{ 
+		
+		return OverlayTextOnPlane(image, IMAGE_I420, width, height, str, x, y, color, background, backgroundPadding); 
+	}
+
 	/**
 	 * Render text overlay onto image
 	 */
@@ -123,7 +199,7 @@ public:
 	/**
 	 * Return the size of the font (height in pixels)
 	 */
-	inline float GetSize() const	{ return mSize; }
+	inline float 	() const	{ return mSize; }
 	
 	/**
 	 * Return the bounding rectangle of the given text string.

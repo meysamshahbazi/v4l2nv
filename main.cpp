@@ -53,6 +53,7 @@
 
 
 #include "cudaDraw.h"
+#include "cudaFont.h"
 // #include "NvCudaProc.h"
 #include "nvbuf_utils.h"
 
@@ -75,6 +76,7 @@ static bool quit = false;
 using namespace std;
 
 uchar4* rgb_img = NULL;
+cudaFont* font = NULL;// = cudaFont::Create();
 static void
 set_defaults(context_t * ctx)
 {
@@ -98,7 +100,11 @@ set_defaults(context_t * ctx)
     ctx->egl_display = EGL_NO_DISPLAY;
 
     ctx->enable_verbose = false;
-
+    font = cudaFont::Create(40.0f);
+    if( !font )
+	{
+		printf("gl-display-test:  failed to create cudaFont object\n");
+	}
     // size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
     // CUresult cuResult = cuMemAlloc((CUdeviceptr*)rgb_img, bufferSize);
     // cudaError_t res;
@@ -500,8 +506,17 @@ cuda_postprocess(context_t *ctx, int fd)
 
     // cudaDrawCircleOnY( (void*) pDevPtr, pDevPtr, 1920, 1080, IMAGE_RGBA8, 
 	// 						100, 100, 50, make_float4(0,255,127,200) ) ;
-    cudaDrawCircleOnYUV420( (void*)eglFrame.frame.pPitch[0], (void*)eglFrame.frame.pPitch[1],(void*)eglFrame.frame.pPitch[2], 1920, 1080, IMAGE_RGBA8, 
-							960, 540, 100, make_float4(0,255,0,200) );
+    // cudaDrawCircleOnYUV420( (void*)eglFrame.frame.pPitch[0], (void*)eglFrame.frame.pPitch[1],(void*)eglFrame.frame.pPitch[2], 1920, 1080, IMAGE_RGBA8, 
+	// 						960, 540, 100, make_float4(0,255,0,200) );
+
+    char str[256];
+	sprintf(str, "AaBbCcDdEeFfGgHhIiJjKkLlMmNn123456890");
+
+    // sprintf(str, "AaBbCcDdEeFf");
+    // str = "im here";
+	font->OverlayTextOnPlane((void*)eglFrame.frame.pPitch[0], 1920, 1080,
+		str, 200, 200, make_float4(0.0f, 190.0f, 255.0f, 255.0f));
+        
     // cudaConvertColor( (void*) rgb_img,IMAGE_RGB8,
 	// 				     (void*) pDevPtr, IMAGE_YUYV,
 	// 				     1920, 1080,
