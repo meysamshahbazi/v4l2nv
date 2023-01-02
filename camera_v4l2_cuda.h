@@ -71,7 +71,7 @@ typedef struct
     unsigned int cam_w;
     unsigned int cam_h;
     unsigned int frame;
-    unsigned int save_n_frame;
+    // unsigned int save_n_frame;
 
     /* Global buffer ptr */
     nv_buffer * g_buff;
@@ -88,7 +88,7 @@ typedef struct
     EGLImageKHR egl_image;
 
     /* MJPEG decoding */
-    NvJPEGDecoder *jpegdec;
+    // NvJPEGDecoder *jpegdec;
 
     /* Verbose option */
     bool enable_verbose;

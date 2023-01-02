@@ -76,7 +76,7 @@ static bool quit = false;
 using namespace std;
 
 uchar4* rgb_img = NULL;
-cudaFont* font = NULL;// = cudaFont::Create();
+cudaFont* font = NULL; // = cudaFont::Create();
 static void
 set_defaults(context_t * ctx)
 {
@@ -88,10 +88,10 @@ set_defaults(context_t * ctx)
     ctx->cam_w = 1920;
     ctx->cam_h = 1080;
     ctx->frame = 0;
-    ctx->save_n_frame = 0;
+    // ctx->save_n_frame = 0;
 
     ctx->g_buff = NULL;
-    ctx->capture_dmabuf = false;
+    ctx->capture_dmabuf = true;
     ctx->renderer = NULL;
     ctx->fps = 30;
 
@@ -154,7 +154,7 @@ camera_initialize(context_t * ctx)
     fmt.fmt.pix.width = ctx->cam_w;
     fmt.fmt.pix.height = ctx->cam_h;
     fmt.fmt.pix.pixelformat = ctx->cam_pixfmt;
-    fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;
+    fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;// V4L2_FIELD_INTERLACED
     if (ioctl(ctx->cam_fd, VIDIOC_S_FMT, &fmt) < 0)
         ERROR_RETURN("Failed to set camera output format: %s (%d)",
                 strerror(errno), errno);
@@ -233,6 +233,7 @@ static bool
 request_camera_buff(context_t *ctx)
 {
     /* Request camera v4l2 buffer */
+    printf("****request_camera_buff****\n");
     struct v4l2_requestbuffers rb;
     memset(&rb, 0, sizeof(rb));
     rb.count = V4L2_BUFFERS_NUM;
@@ -560,8 +561,7 @@ start_capture(context_t * ctx)
     sig_action.sa_flags = 0;
     sigaction(SIGINT, &sig_action, NULL);
 
-    // if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG)
-    //     ctx->jpegdec = NvJPEGDecoder::createJPEGDecoder("jpegdec");
+    
 
     /* Init the NvBufferTransformParams */
     memset(&transParams, 0, sizeof(transParams));
@@ -624,8 +624,7 @@ start_capture(context_t * ctx)
     /* Print profiling information when streaming stops */
     ctx->renderer->printProfilingStats();
 
-    // if (ctx->cam_pixfmt == V4L2_PIX_FMT_MJPEG)
-    //     delete ctx->jpegdec;
+
 
     return true;
 }

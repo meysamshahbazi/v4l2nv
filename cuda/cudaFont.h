@@ -199,7 +199,7 @@ public:
 	/**
 	 * Return the size of the font (height in pixels)
 	 */
-	inline float 	() const	{ return mSize; }
+	inline float GetSize() const	{ return mSize; }
 	
 	/**
 	 * Return the bounding rectangle of the given text string.
