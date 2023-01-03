@@ -107,6 +107,62 @@ __global__ void gpuDrawCircleOnOnePlane( T* img, int imgWidth, int imgHeight, in
 	}
 }
 
+/**
+ * @brief this for drawwing circle on yuyv image in y planes...
+ * 
+ * @param img 
+ * @param imgWidth 
+ * @param imgHeight 
+ * @param offset_x 
+ * @param offset_y 
+ * @param cx 
+ * @param cy 
+ * @param radius2 
+ * @param color 
+ * @return __global__ 
+ */
+__global__ void gpuDrawCircleYY( unsigned char *img, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, uint8_t color ) 
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y + offset_y;
+
+	if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+		return;
+
+	const int dx = x - cx;
+	const int dy = y - cy;
+	
+	// if x,y is in the circle draw it
+	if( dx * dx + dy * dy < radius2 ) 
+	{
+		const int idx = 2*y * imgWidth + 2*x;
+		// const int idx = /* (char *)pDevPtr  + */ y * imgWidth + x;
+		img[idx] = color;
+	}
+}
+
+__global__ void gpuDrawCircleUV( unsigned char *img, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, uint8_t color_u,uint8_t color_v ) 
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y + offset_y;
+
+	if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+		return;
+
+	const int dx = x - cx;
+	const int dy = y - cy;
+	
+	// if x,y is in the circle draw it
+	if( dx * dx + dy * dy < radius2 ) 
+	{
+		const int idx_u = 4*y * imgWidth + 4*x+1;
+		const int idx_v = 4*y * imgWidth + 4*x+3;
+		// const int idx = /* (char *)pDevPtr  + */ y * imgWidth + x;
+		img[idx_u] = color_u;
+		img[idx_v] = color_v;
+	}
+}
+
 inline __device__ void rgb_to_y(const uint8_t r, const uint8_t g, const uint8_t b, uint8_t& y)
 {
 	y = static_cast<uint8_t>(((int)(30 * r) + (int)(59 * g) + (int)(11 * b)) / 100);
@@ -230,6 +286,40 @@ cudaError_t cudaDrawCircleOnY( void* input, void* output, size_t width, size_t h
 	
 
 	LAUNCH_DRAW_CIRCLE_ON_Y(uchar);		
+	return cudaGetLastError();
+}
+
+cudaError_t  cudaDrawCircleOnYUYU( void* input, size_t width, size_t height, int cx, int cy, float radius, const float4& color )
+{
+	// this is my function to draw cirle on Y channel of YUV image.. 
+	if( !input || width == 0 || height == 0 || radius <= 0 )
+		return cudaErrorInvalidValue;
+
+
+	// if the input and output images are different, copy the input to the output
+	// this is because we only launch the kernel in the approximate area of the circle
+	// if( input != output )
+	// 	CUDA(cudaMemcpy(output, input, imageFormatSize(format, width, height), cudaMemcpyDeviceToDevice));
+		
+	// find a box around the circle
+
+	const int diameter_y = ceilf(radius * 2.0f);
+	const int offset_x = cx - radius;
+	const int offset_y = cy - radius;
+	
+	// launch kernel
+	const dim3 blockDim(8, 8);
+	const dim3 gridDim(iDivUp(diameter_y,blockDim.x), iDivUp(diameter_y,blockDim.y));
+	const dim3 gridDim_uv(iDivUp(ceilf(radius),blockDim.x), iDivUp(ceilf(radius),blockDim.y));
+
+	uint8_t y = static_cast<uint8_t>(((int)(30 * color.x) + (int)(59 * color.y) + (int)(11 * color.z)) / 100);
+	uint8_t u = static_cast<uint8_t>(((int)(-17 * color.x) - (int)(33 * color.y) + (int)(50 * color.z) + 12800) / 100);
+	uint8_t v = static_cast<uint8_t>(((int)(50 * color.x) - (int)(42 * color.y) - (int)(8 * color.z) + 12800) / 100);
+
+	gpuDrawCircleYY<<<gridDim,blockDim>>>((unsigned char *)input, width, height, offset_x, offset_y, cx, cy, radius*radius, y);
+	// gpuDrawCircleUV<<<gridDim,gridDim_uv>>>((unsigned char *)input, width, height/2, offset_x/2, offset_y/2, cx/2, cy/2, radius*radius/4, u, v);
+
+
 	return cudaGetLastError();
 }
 
@@ -366,6 +456,41 @@ __global__ void gpuDrawRect( T* img, int imgWidth, int imgHeight, int x0, int y0
 
 	const int idx = y * imgWidth + x;
 	img[idx] = cudaAlphaBlend(img[idx], color);
+}
+
+
+__global__ void gpuAlongSide( char* input_0, char* input_1, char* output, size_t width, size_t height)
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+	// if( box_x >= boxWidth || box_y >= boxHeight )
+	// 	return;
+
+	// const int x  = box_x + x0;
+	// const int y =box_y + y0;
+
+	// if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+	// 	return;
+
+	const int idx = y * 2048 + x;
+
+	if(x<960)
+		output[idx] = input_0[y*2048+x];
+	else 
+		output[idx] = input_1[y*2048+x];
+	// img[idx] = cudaAlphaBlend(img[idx], color);
+}
+
+
+cudaError_t cudaAlongSide( void* input_0, void* input_1, void* output, size_t width, size_t height)
+{
+		const dim3 blockDim(8, 8);
+		const dim3 gridDim(iDivUp(width,blockDim.x), iDivUp(height,blockDim.y));
+
+		gpuAlongSide<<<gridDim, blockDim>>>((char *) input_0,(char *) input_1, (char *) output,width,height);
+
+		return cudaGetLastError();
 }
 
 

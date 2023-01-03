@@ -84,7 +84,7 @@ set_defaults(context_t * ctx)
 
     ctx->cam_devname = "/dev/video0";
     ctx->cam_fd = -1;
-    ctx->cam_pixfmt = V4L2_PIX_FMT_UYVY;
+    ctx->cam_pixfmt = V4L2_PIX_FMT_YUYV;
     ctx->cam_w = 1920;
     ctx->cam_h = 1080;
     ctx->frame = 0;
@@ -476,7 +476,11 @@ cuda_postprocess(context_t *ctx, int fd)
     // uchar4* rgb_img = NULL; 
     // size_t bufferSize = 1920 * 1080 * sizeof(uchar4);
     // CUresult cuResult = cuMemAlloc((CUdeviceptr*)rgb_img, bufferSize);
+
     cudaError_t res;
+
+    res = cudaDrawCircleOnYUYU((void*)eglFrame.frame.pPitch[0], 1920, 1080,
+                    960, 540, 200, make_float4(0,255,0,200) );
     // res = cudaMalloc((void **) &rgb_img,bufferSize);
 
     // if (res != cudaSuccess)
@@ -510,13 +514,14 @@ cuda_postprocess(context_t *ctx, int fd)
     // cudaDrawCircleOnYUV420( (void*)eglFrame.frame.pPitch[0], (void*)eglFrame.frame.pPitch[1],(void*)eglFrame.frame.pPitch[2], 1920, 1080, IMAGE_RGBA8, 
 	// 						960, 540, 100, make_float4(0,255,0,200) );
 
-    char str[256];
-	sprintf(str, "AaBbCcDdEeFfGgHhIiJjKkLlMmNn123456890");
+    // char str[256];
+	// sprintf(str, "AaBbCcDdEeFfGgHhIiJjKkLlMmNn123456890");
 
     // sprintf(str, "AaBbCcDdEeFf");
     // str = "im here";
-	font->OverlayTextOnPlane((void*)eglFrame.frame.pPitch[0], 1920, 1080,
-		str, 200, 200, make_float4(0.0f, 190.0f, 255.0f, 255.0f));
+
+	// font->OverlayTextOnPlane((void*)eglFrame.frame.pPitch[0], 1920, 1080,
+	// 	str, 200, 200, make_float4(0.0f, 190.0f, 255.0f, 255.0f));
         
     // cudaConvertColor( (void*) rgb_img,IMAGE_RGB8,
 	// 				     (void*) pDevPtr, IMAGE_YUYV,
@@ -602,12 +607,68 @@ start_capture(context_t * ctx)
                             ctx->cam_w, ctx->cam_h, ctx->g_buff[v4l2_buf.index].dmabuff_fd);
             }
 
+            // place for cuda pre process!
+            CUresult  status;
+            // CUresult  status = cuCtxSynchronize();
+            // if (status != CUDA_SUCCESS)
+            // {
+            //     printf("cuCtxSynchronize2 failed after memcpy \n");
+            // }
+            // int ret = 0;
+            // ret = NvBufferMemMap (ctx->g_buff[v4l2_buf.index].dmabuff_fd, 0, NvBufferMem_Write, (void**)&ctx->g_buff[v4l2_buf.index].start);
+            // NvBufferMemMap (  ctx->g_buff[v4l2_buf.index].dmabuff_fd, 0,
+            //                     (void**)&ctx->g_buff[v4l2_buf.index].start );
+
+            // printf("ret %d\n",ret);
+
+            // int ret = 0;
+            // NvBufferParams dest_param;
+            // ret = NvBufferGetParams (ctx->g_buff[v4l2_buf.index].dmabuff_fd, &dest_param );
+            // if (ret ==0)
+            // {
+            //     printf("height: %u\t",dest_param.height[0]);
+            //     printf("layout: %u\t",dest_param.layout[0]);
+            //     printf("memsize: %d\t",dest_param.memsize);
+            //     printf("num_planes: %u\t",dest_param.num_planes);
+            //     printf("nv_buffer_size: %u\t",dest_param.nv_buffer_size);
+            //     printf("offset: %u\t",dest_param.offset[0]);
+            //     printf("payloadType: %u\t",dest_param.payloadType);
+            //     printf("pitch: %u\t",dest_param.pitch[0]);
+                // printf("pixel_format: %u\t",dest_param.pixel_format);
+            //     printf("psize: %u\t",dest_param.psize[0]);
+            //     printf("width: %u\t",dest_param.width[0]);
+            //     printf("nv_buffer_size: %u\t",dest_param.nv_buffer_size);
+            //     printf("\n");
+            // }
+
+            // cudaError_t res = cudaDrawCircleOnYUYU( (void*) ctx->g_buff[v4l2_buf.index].start, 1920, 1080,
+			// 				960, 540, 100, make_float4(0,255,0,200) );
+
+            // height: 1080	layout: 0	memsize: 0	num_planes: 1	nv_buffer_size: 1008	offset: 0	payloadType: 0	pitch: 3840	pixel_format: 13	psize: 4194304	width: 1920	nv_buffer_size: 1008
+            // width: 1920	height: 1080	depth: 0	pitch: 3840	planeCount: 1	numChannels: 1	frameType: 1	eglColorFormat: 12
+
+            // cudaError_t res1 = cudaDrawCircleOnYUYU( (void*) dest_param.nv_buffer, 1920, 1080,
+			// 				960, 540, 100, make_float4(0,255,0,200) );
+            
+            // cudaDeviceSynchronize();
+
+            // status = cuCtxSynchronize();
+            // if (status != CUDA_SUCCESS)
+            // {
+            //     printf("cuCtxSynchronize2 failed after memcpy %d\n",res);
+            // }
+
+
+            cuda_postprocess(ctx, ctx->g_buff[v4l2_buf.index].dmabuff_fd);
+            
             /*  Convert the camera buffer from YUV422 to YUV420P */
             if (-1 == NvBufferTransform(ctx->g_buff[v4l2_buf.index].dmabuff_fd, ctx->render_dmabuf_fd,
                         &transParams))
                 ERROR_RETURN("Failed to convert the buffer");
 
-            cuda_postprocess(ctx, ctx->render_dmabuf_fd);
+
+
+            // cuda_postprocess(ctx, ctx->render_dmabuf_fd);
 
             /* Preview */
             ctx->renderer->render(ctx->render_dmabuf_fd);

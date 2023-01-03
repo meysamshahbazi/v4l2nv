@@ -70,6 +70,9 @@ cudaError_t cudaDrawCircleOnY( void* input, void* output, size_t width, size_t h
 cudaError_t cudaDrawCircleOnYUV420( void* input_y, void* input_u,void* input_v, size_t width, size_t height, imageFormat format, 
 					int cx, int cy, float radius, const float4& color );
 
+cudaError_t cudaDrawCircleOnYUYU( void* input, size_t width, size_t height,
+					int cx, int cy, float radius, const float4& color );
+
 /**
  * cudaDrawCircle
  * @ingroup drawing
