@@ -140,6 +140,29 @@ __global__ void gpuDrawCircleYY( unsigned char *img, int imgWidth, int imgHeight
 	}
 }
 
+__global__ void gpuDrawCircleYUYV( unsigned char *img, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, uint8_t color_y,uint8_t color_u,uint8_t color_v ) 
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y + offset_y;
+
+	if( x >= imgWidth || y >= imgHeight || x < 0 || y < 0 )
+		return;
+
+	const int dx = x - cx;
+	const int dy = y - cy;
+
+	if( dx * dx + dy * dy < radius2 ) 
+	{
+		// print(x," : ",line[2*x]," : ",line[4*(x//2)+1]," : ",line[4*(x//2)+3])
+		img[y*2*imgWidth+2*x] = color_y;
+		img[y*2*imgWidth+4*(x/2)+1] = color_u;
+		img[y*2*imgWidth+4*(x/2)+3] = color_v;
+		
+	}
+
+
+}
+
 __global__ void gpuDrawCircleUV( unsigned char *img, int imgWidth, int imgHeight, int offset_x, int offset_y, int cx, int cy, float radius2, uint8_t color_u,uint8_t color_v ) 
 {
 	const int x = blockIdx.x * blockDim.x + threadIdx.x + offset_x;
@@ -315,11 +338,13 @@ cudaError_t  cudaDrawCircleOnYUYU( void* input, size_t width, size_t height, int
 	uint8_t u = static_cast<uint8_t>(((int)(-17 * color.x) - (int)(33 * color.y) + (int)(50 * color.z) + 12800) / 100);
 	uint8_t v = static_cast<uint8_t>(((int)(50 * color.x) - (int)(42 * color.y) - (int)(8 * color.z) + 12800) / 100);
 
-	gpuDrawCircleYY<<<gridDim,blockDim>>>((unsigned char *)input, width, height, offset_x, offset_y, cx, cy, radius*radius, y);
+	gpuDrawCircleYUYV<<<gridDim,blockDim>>>((unsigned char *)input, width, height, offset_x, offset_y, cx, cy, radius*radius, y,u,v);
+
+	// gpuDrawCircleYY<<<gridDim,blockDim>>>((unsigned char *)input, width, height, offset_x, offset_y, cx, cy, radius*radius, y);
 	// gpuDrawCircleUV<<<gridDim,gridDim_uv>>>((unsigned char *)input, width, height, offset_x, offset_y, cx, cy, radius*radius, u, v);
 	
 	// TODO: do this part with correct portion ... the number of thread in y must be same as y channel but in x must be half... 
-	gpuDrawCircleUV<<<gridDim,gridDim_uv>>>((unsigned char *)input, width, height/2, offset_x/2, offset_y/2, cx/2, cy/2, radius*radius/4, u, v);
+	// gpuDrawCircleUV<<<gridDim,gridDim_uv>>>((unsigned char *)input, width, height/2, offset_x/2, offset_y/2, cx/2, cy/2, radius*radius/4, u, v);
 
 
 	return cudaGetLastError();

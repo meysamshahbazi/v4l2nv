@@ -480,7 +480,7 @@ cuda_postprocess(context_t *ctx, int fd)
     cudaError_t res;
 
     res = cudaDrawCircleOnYUYU((void*)eglFrame.frame.pPitch[0], 1920, 1080,
-                    960, 540, 200, make_float4(0,255,0,200) );
+                    960, 540, 540, make_float4(0,255,0,200) );
     // res = cudaMalloc((void **) &rgb_img,bufferSize);
 
     // if (res != cudaSuccess)
